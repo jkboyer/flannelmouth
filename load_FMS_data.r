@@ -75,6 +75,10 @@ unique(fms$SEX_COND_CODE)
 unique(fms$SEX_CHAR_CODE)
 unique(fms$DISPOSITION_CODE)
 
+# get year from datetime
+fms <- fms %>%
+  mutate(year = substr( as.character(START_DATETIME), 1, 4))
+
 # If missing total length, calculate from fork length, and vice versa #####
 # calculate coefficients
 fms.lengths <- fms %>% #subset to fish with both lengths
@@ -117,7 +121,8 @@ fms.lengths <- fms.lengths %>%
 fms.lengths <- fms.lengths %>%
   filter(TL.difference < 25 & FL.difference < 25)
 
-#graph, see what values should be excluded
+#graph, see if I picked the right value above to exclude measurement/species
+#errors but keep all real flannelmouths
 fms.lengths %>%
   ggplot(aes(x = TOTAL_LENGTH, y = FORK_LENGTH, color = FL.difference)) +
   geom_point(size = 0.75) +
@@ -159,3 +164,4 @@ fms.pit <- fms %>%
 write.csv(fms, "./data/all_flannelmouth.csv", row.names = FALSE)
 write.csv(fms.pit, "./data/all_PIT_tagged_flannelmouth.csv",
           row.names = FALSE)
+
