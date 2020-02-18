@@ -61,6 +61,7 @@ fms %>%
   scale_x_continuous(breaks = seq(0, 700, by = 100)) +
   ggtitle("Flannelmouth, 2018-2019")
 
+#look at each year separately
 fms %>%
   filter(year >= 2013) %>%
   ggplot(aes(TL)) +
@@ -70,7 +71,19 @@ fms %>%
   facet_grid(rows = vars(year), scales = "free", space = "free")
 # is huge increase in juveniles in 2017 due to start of JCM west?
 
+#same data on a different graph type
+fms %>%
+  filter(year >= 2013) %>%
+  ggplot(aes(TL)) +
+  geom_density(fill = "gray") +
+  scale_x_continuous(breaks = seq(0, 700, by = 100)) +
+  ggtitle("Flannelmouth, 2013-2019") +
+  facet_grid(rows = vars(year), scales = "free", space = "free")
+
+
 # maturity #####
+#maximize sample size:
+#include ripe fish and tuberculated or colored fish
 fms %>%
   filter(year >= 2013) %>%
   filter(SEX_CODE %in% c("M", "F") &
@@ -82,5 +95,44 @@ fms %>%
   ggtitle("Flannelmouth, 2013-2019")  +
   facet_grid(rows = vars(SEX_CODE), scales = "free")
 
+#another way to look at same data
+fms %>%
+  filter(year >= 2013) %>%
+  filter(SEX_CODE %in% c("M", "F") &
+           (SEX_COND_CODE == "R" |
+              SEX_CHAR_CODE %in% c("C", "T", "B"))) %>%
+  ggplot(aes(x = TL, fill = SEX_CODE)) +
+  geom_density(alpha = 0.4) +
+  scale_x_continuous(breaks = seq(0, 700, by = 100)) +
+  ggtitle("Flannelmouth, 2013-2019")
 
+#only include ripe fish - will reduce sample size
+fms %>%
+  filter(year >= 2013) %>%
+  filter(SEX_CODE %in% c("M", "F") &
+           (SEX_COND_CODE == "R" )) %>%
+  ggplot(aes(x = TL, fill = SEX_CODE)) +
+  geom_histogram(alpha = 0.8) +
+  scale_x_continuous(breaks = seq(0, 700, by = 100)) +
+  ggtitle("Flannelmouth, 2013-2019")  +
+  facet_grid(rows = vars(SEX_CODE), scales = "free")
 
+#same data as above, but density plot
+fms %>%
+  filter(year >= 2013) %>%
+  filter(SEX_CODE %in% c("M", "F") &
+           (SEX_COND_CODE == "R" )) %>%
+  ggplot(aes(x = TL, fill = SEX_CODE)) +
+  geom_density(alpha = 0.4) +
+  scale_x_continuous(breaks = seq(0, 700, by = 100)) +
+  ggtitle("Flannelmouth, 2013-2019")
+
+# Based on maturity plots, somewhere around 300-350mm would be reasonable
+# to set as size break based on size at reproductive maturity. As expected,
+# males mature at smaller sizes (300mm, vs. 325-350 for females)
+
+# length freq histograms are messier, size distribution changes a lot each year.
+# But, the ~325mm from maturity plots seems reasonable based on length freq
+# histograms too. The only other natural break I see is around 125mm for the
+# smallest size class, but these fish don't have PIT tags so we can't analyze
+# a <125mm size class anyway
