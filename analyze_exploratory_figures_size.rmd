@@ -1,3 +1,18 @@
+---
+title: "analyze_exploratory_figures_size.r"
+author: "Jan K Boyer"
+date: "2/18/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+require(rmarkdown)
+require(knitr)
+```
+# Load and format data
+
+```{r loaddata, warning=FALSE}
 # exploratory figures
 # see size structure and size at maturity so we can decide how to bin
 # fish into size/age classes for meodelling
@@ -18,16 +33,16 @@ fms <- read.csv("./data/all_flannelmouth.csv", stringsAsFactors = FALSE)
 fms <- fms %>%
   mutate(START_DATETIME = as.POSIXct(START_DATETIME))
 
-
 #subset data
 fms <- fms %>%
   filter(!is.na(TL)) %>% #subset to fish with length data
   # remove very large fish. maybe these records are real, but I'm sceptical,
   # and we don't need to waste our graph space looking at long tails
   filter(TL <= 650)
+```
 
-# examine length frequency #####
-
+# examine length frequency 
+```{r lengthfrequency, warning=FALSE}
 # length freq histogram
 fms %>%
   ggplot(aes(TL)) +
@@ -80,8 +95,10 @@ fms %>%
   ggtitle("Flannelmouth, 2013-2019") +
   facet_grid(rows = vars(year), scales = "free", space = "free")
 
+```
 
-# maturity #####
+# maturity 
+```{r maturity, warning=FALSE}
 #maximize sample size:
 #include ripe fish and tuberculated or colored fish
 fms %>%
@@ -126,14 +143,8 @@ fms %>%
   geom_density(alpha = 0.4) +
   scale_x_continuous(breaks = seq(0, 700, by = 100)) +
   ggtitle("Flannelmouth, 2013-2019")
+```
 
-# Based on maturity plots, somewhere around 300-350mm would be reasonable
-# to set as size break based on size at reproductive maturity. As expected,
-# males mature at smaller sizes (300mm, vs. 325-350 for females)
+Based on maturity plots, somewhere around 300-350mm would be reasonable to set as size break based on size at reproductive maturity. As expected, males mature at smaller sizes (300mm, vs. 325-350 for females)
 
-# length freq histograms are messier, size distribution changes a lot each year.
-# But, the ~325mm from maturity plots seems reasonable based on length freq
-# histograms too. The only other natural break I see is around 125mm for the
-# smallest size class, but these fish don't have PIT tags so we can't analyze
-# a <125mm size class anyway
-
+length freq histograms are messier, size distribution changes a lot each year. But, the ~325mm from maturity plots seems reasonable based on length freq histograms too. The only other natural break I see is around 125mm for the smallest size class, but these fish don't have PIT tags so we can't analyze a <125mm size class anyway
