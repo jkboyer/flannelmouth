@@ -1,8 +1,8 @@
 ---
-title: "analyze_exploratory_figures_size.r"
+title: "Flannelmouth Exploratory Graphs"
 author: "Jan K Boyer"
 date: "2/18/2020"
-output: html_document
+output: pdf_document
 ---
 
 ```{r setup, include=FALSE}
