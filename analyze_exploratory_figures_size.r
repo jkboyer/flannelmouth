@@ -7,6 +7,8 @@
 #Outputs: none
 #Dependencies: none
 
+###Laura added this line to test GitHub
+
 require(tidyverse)
 theme_set(theme_minimal()) #ggplot defaults are ugly, set a better theme
 
