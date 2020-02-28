@@ -16,10 +16,12 @@ library(tidyverse)
 #load data ######
 
 # define database file name as most recent version here
-db.GCMRC <- "FISH_SAMPLE_SPECIMEN_HISTORY_20200211_1704.mdb"
+db.GCMRC <- "FISH_SAMPLE_SPECIMEN_HISTORY_20200212_1711.mdb"
 
 # specify file location of GCMRC database
-gcmrc.file.path <- "\\\\flag-server/Office/GCMRC_master_database/"
+
+gcmrc.file.path <- "M:/Lovich/Laura Tennant work folder/GCMRC/FMS_mark_recap/" #Laura's working file path
+gcmrc.file.path <- "\\\\flag-server/Office/GCMRC_master_database/"    #Jan's working file path
 
 #connect to database
 db <- odbcConnectAccess(paste(gcmrc.file.path, db.GCMRC, sep = ""))
@@ -41,8 +43,11 @@ sqlColumns(db, "SAMPLE_SPECIMEN_ALL")$COLUMN_NAME
 fms <- sqlQuery(db,
               paste("SELECT SAMPLE_TYPE, FISH_T_SAMPLE.TRIP_ID, GEAR_CODE,",
                         "FISH_T_SAMPLE.START_DATETIME, RIVER_CODE, START_RM,",
-                        "START_RKM, SPECIES_CODE, TOTAL_LENGTH, FORK_LENGTH,",
-                        "WEIGHT, PITTAG, DISPOSITION_CODE,",
+                        "END_RM, START_RKM, END_RKM, GPS_START_WAYPOINT,",
+                        "GPS_END_WAYPOINT, GIS_X, GIS_Y, LAT, LON,",
+                        "SPECIES_CODE, TOTAL_LENGTH, FORK_LENGTH,",
+                        "WEIGHT, PITTAG, PITTAG_RECAP, PITTAG2, PITTAG2_RECAP,",
+                        "PITTAG3, PITTAG3_RECAP, DISPOSITION_CODE,",
                         "SEX_CODE, SEX_COND_CODE, SEX_CHAR_CODE",
                     "FROM SAMPLE_SPECIMEN_ALL",
                     "WHERE SPECIES_CODE = 'FMS'"),
@@ -94,7 +99,7 @@ fms.lengths %>%
 #apparently there are some measurement errors
 
 #fit linear models
-#predict fork length from total lenght
+#predict fork length from total length
 lm.TL.to.FL <- lm(FORK_LENGTH ~ TOTAL_LENGTH, data = fms.lengths)
 summary(lm.TL.to.FL)
 lm.FL.to.TL <- lm(TOTAL_LENGTH ~ FORK_LENGTH, data = fms.lengths)
@@ -157,10 +162,11 @@ fms <- fms %>%
 # subset to PIT tagged fish only for mark recap analysis
 fms.pit <- fms %>%
   filter(!is.na(PITTAG)) %>%
-  select(-c(SEX_CODE, SEX_COND_CODE, SEX_CHAR_CODE))
+  select(-c(SEX_CODE, SEX_COND_CODE, SEX_CHAR_CODE,
+            PITTAG2, PITTAG2_RECAP, PITTAG3, PITTAG3_RECAP))
 
 
-# save data locally in R project data folder #######
+#save data locally in R project data folder #######
 write.csv(fms, "./data/all_flannelmouth.csv", row.names = FALSE)
 write.csv(fms.pit, "./data/all_PIT_tagged_flannelmouth.csv",
           row.names = FALSE)
