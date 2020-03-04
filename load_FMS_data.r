@@ -1,7 +1,8 @@
 #loads data
 #1. all PIT tagged FMS in GCMRC database for mark-recapture analysis
 #2. all flannelmouth to look at size structure, maturity, etc.
-#Author: Jan Boyer, AGFD, jboyer@azgfd.gov
+#Authors: Jan Boyer, AGFD, jboyer@azgfd.gov
+#         Laura Tennant, USGS, ltennant@usgs.gov
 #Inputs: most recent version of big boy (access database)
 #Outputs: "all_PIT_tagged_flannelmouth.csv"
 #         "all_flannelmouth.csv"
@@ -13,15 +14,18 @@
 library(RODBC) #database interface
 library(tidyverse)
 
+theme_set(theme_minimal()) #override ugly default ggplot theme
+
 #load data ######
 
 # define database file name as most recent version here
 db.GCMRC <- "FISH_SAMPLE_SPECIMEN_HISTORY_20200212_1711.mdb"
 
 # specify file location of GCMRC database
-
-gcmrc.file.path <- "M:/Lovich/Laura Tennant work folder/GCMRC/FMS_mark_recap/" #Laura's working file path
-gcmrc.file.path <- "\\\\flag-server/Office/GCMRC_master_database/"    #Jan's working file path
+#Laura's working file path
+gcmrc.file.path <- "M:/Lovich/Laura Tennant work folder/GCMRC/FMS_mark_recap/"
+#Jan's working file path
+gcmrc.file.path <- "\\\\flag-server/Office/GCMRC_master_database/"
 
 #connect to database
 db <- odbcConnectAccess(paste(gcmrc.file.path, db.GCMRC, sep = ""))
@@ -89,8 +93,6 @@ fms <- fms %>%
 fms.lengths <- fms %>% #subset to fish with both lengths
   filter(!is.na(TOTAL_LENGTH) & !is.na(FORK_LENGTH))
 
-theme_set(theme_minimal()) #override ugly default ggplot theme
-
 #look at length data: TL vs. FL
 fms.lengths %>%
   ggplot(aes(x = TOTAL_LENGTH, y = FORK_LENGTH)) +
@@ -110,7 +112,6 @@ TLtoFL.intercept <- summary(lm.TL.to.FL)$coef["(Intercept)", "Estimate"]
 TLtoFL.slope <- summary(lm.TL.to.FL)$coef["TOTAL_LENGTH", "Estimate"]
 FLtoTL.intercept <- summary(lm.FL.to.TL)$coef["(Intercept)", "Estimate"]
 FLtoTL.slope <- summary(lm.FL.to.TL)$coef["FORK_LENGTH", "Estimate"]
-
 
 #calculate predicted fork length
 fms.lengths <- fms.lengths %>%
@@ -159,12 +160,107 @@ fms <- fms %>%
                           TLtoFL.intercept + TLtoFL.slope*TOTAL_LENGTH,
                         TRUE ~ FORK_LENGTH))
 
-# subset to PIT tagged fish only for mark recap analysis
+# fish captured in mouths of tributaries - recode as mainstem fish #####
+
+#see what fish are in tributaries
+tribs <- fms %>%
+  filter(RIVER_CODE != "COR")
+
+# some fish have tributary river codes, but a mainstem river mile recorded
+# (e.g. HAV 157.26, SHI 108.6), and a low (<0.2) or no kilometer record
+# these fish can be reclassified as COR (mainstem) fish
+upstream.cutoff <- 0.2 #how many miles up a tributary we consider mainstem
+#ASK LAURA AND CHARLES HOW FAR UPSTREAM CUTOFF SHOULD BE
+
+
+fms <- fms %>%
+  mutate(RIVER_CODE = case_when( #reclassify as COR if:
+    #if kilometer is missing or small (i.e. close to confluence)
+    (is.na(START_RKM) | START_RKM <= upstream.cutoff*1.609) &
+    #and river mile matches the appropriate tributary confluence
+    ((RIVER_CODE == "PAR" & START_RM >= 0.70 & START_RM <= 0.80) |
+    (RIVER_CODE == "LCR" & START_RM >= 61.3 & START_RM <= 61.4) |
+    (RIVER_CODE == "CLC" & START_RM == 84.10) |
+    (RIVER_CODE == "BAC" & START_RM == 87.70) |
+    (RIVER_CODE == "SHI" & START_RM == 108.6) |
+    (RIVER_CODE == "DRC" & START_RM == 136.3) |
+    (RIVER_CODE == "KAN" & START_RM >= 143.5 & START_RM <= 146.5) |
+    (RIVER_CODE == "MAT" & START_RM == 147.8) |
+    (RIVER_CODE == "HAV" & START_RM >= 156.7 & START_RM <= 157.3)) ~ "COR",
+    #some of the paria records had confluence location in km and miles
+    RIVER_CODE == "PAR" & START_RM >= 0.70 & START_RM <= 0.80 &
+      START_RKM == 26.7 ~ "COR",
+    #otherwise, keep river code unchanged
+    TRUE ~ RIVER_CODE))
+
+#most trib records are recorded in km, but some are in RM
+
+#if start km < 0.2*1.609, or if start km is missing and start RM < 0.2,
+#reclassify as COR and assign start RM based on tributary
+
+#join confluence rkms to fms
+rivers <- sort(c(unique(fms$RIVER_CODE)))
+
+#dataframe of confluence locations in miles
+confluences <- data.frame(RIVER_CODE = sort(c(unique(fms$RIVER_CODE))),
+                          confluence_RM = c(88.3, #BAC
+                                            84.7, #CLR
+                                            NA, #COR
+                                            136.9, #DRC
+                                            157.3, #HAV
+                                            144.0, #KAN
+                                            61.8, #LCR
+                                            52.5, #NKW
+                                            0.9, #PAR
+                                            260.3, #QUA
+                                            109.3, #SHI
+                                            NA, #SHM does not exist, typo?
+                                            246.3, #SPE
+                                            248.7, #SUR
+                                            134.3)) #TAP
+
+fms <- fms %>% #join confluence miles to fms data
+  left_join(confluences)
+
+# replace RM with confluence RM for fish caught near mouth of tributary
+fms <- fms %>%
+  mutate(START_RM = case_when(
+           RIVER_CODE != "COR" & (START_RKM <= upstream.cutoff*1.609 |
+           (is.na(START_RKM) & START_RM <= upstream.cutoff)) ~ confluence_RM,
+           TRUE ~ START_RM),
+         RIVER_CODE = case_when(
+           RIVER_CODE != "COR" & (START_RKM <= upstream.cutoff*1.609 |
+           (is.na(START_RKM) & START_RM <= upstream.cutoff)) ~ "COR",
+           TRUE ~ RIVER_CODE)) %>%
+  select(-confluence_RM) #no longer needed, remove column
+
+#Questions still remaining:
+#   how far upstream do we consider mainstem?
+#   in LCR, what do negative kilometers mean?
+#   in LCR, what is mile 197?
+#   lots of zeros (especially in Shinumo). Confluence, or missing data?
+#   should I give each trib a confluence river mile so we have that location
+#       for modelling movement?
+
+# Have filters successfully removed mainstem/confluence fish from tribs?
+tribs <- fms %>%
+  filter(RIVER_CODE != "COR")
+
+#counts of fms in each tributary
+tribs %>%
+  group_by(RIVER_CODE) %>%
+  summarize(n = n(),
+            n.rkm = sum(!is.na(START_RKM)),
+            n.rm = sum(!is.na(START_RM))) %>%
+  arrange(-n)
+#most trib records are recorded in km, but some are in RM
+#some Havasu records with RM 157.2 and some Paria records with 0.7 are clearly COR
+
+# subset to PIT tagged fish only for mark recap analysis #####
 fms.pit <- fms %>%
   filter(!is.na(PITTAG)) %>%
   select(-c(SEX_CODE, SEX_COND_CODE, SEX_CHAR_CODE,
             PITTAG2, PITTAG2_RECAP, PITTAG3, PITTAG3_RECAP))
-
 
 #save data locally in R project data folder #######
 write.csv(fms, "./data/all_flannelmouth.csv", row.names = FALSE)
