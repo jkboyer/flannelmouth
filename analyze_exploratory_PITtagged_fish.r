@@ -36,9 +36,18 @@ fms <- fms %>%
 #NEED TO FIX: about 20 new tags missing . (3DD003BFCE6CD)
 #             go back to load file and correct
 
+fms %>% #what size fish were they tagging?
+  group_by(year) %>%
+  summarize(min = min(TL, na.rm = TRUE),
+            mean = mean(TL, na.rm = TRUE),
+            max = max(TL, na.rm = TRUE)) %>%
+  print(n = Inf)
+
 #subset to recaptured fish only
 fms <- fms %>%
-  filter(recapture == "Y")
+  filter(recapture == "Y") %>%
+  #subset to since 2004
+  filter(year >= 2004)
 
 # missing data ############
 
@@ -93,6 +102,14 @@ fms %>% #plot, by year and tag type
   theme(legend.position = "top", legend.title = element_blank()) +
   geom_bar()
 
+fms %>% #HOW LONG were trammel nets used
+  filter(GEAR_CODE %in% c("TK", "T50", "T75", "TL", "TM", "TN", "TP", "TRA",
+                          "TS", "TY", "TZ")) %>%
+  ggplot(aes(x = year)) +
+  theme(legend.position = "top", legend.title = element_blank()) +
+  geom_bar()
+#until 2014, which means we have to deal with them and calculating effort
+
 #by project
 fms %>%
   group_by(SAMPLE_TYPE) %>%
@@ -103,7 +120,8 @@ fms %>%
 #by gear type
 fms %>%
   group_by(GEAR_CODE) %>%
-  summarise(n = n()) %>%
+  summarise(n = n(),
+            percent = 100*(n/nrow(fms))) %>%
   arrange(-n) %>%
   print(n = Inf)
 
@@ -133,4 +151,5 @@ fms %>%
   ggplot(aes(x = START_RM, fill = tag_type)) +
   theme(legend.position = "top", legend.title = element_blank()) +
   geom_histogram()
+
 
