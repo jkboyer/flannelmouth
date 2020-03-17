@@ -34,14 +34,6 @@ db <- odbcConnectAccess(paste(gcmrc.file.path, db.GCMRC, sep = ""))
 sqlTables(db)
 sqlColumns(db, "SAMPLE_SPECIMEN_ALL")$COLUMN_NAME
 
-
-# define columns wanted from database
-#specimen.columns <- paste(
-  # SAMPLE_TYPE,",
- # "FISH_T_SAMPLE.START_DATETIME, RIVER_CODE, START_RM, START_RKM,",
- # "SPECIES_CODE, TOTAL_LENGTH, FORK_LENGTH, WEIGHT, DISP,",
-#  "SEX_CODE, SEX_COND_CODE, SEX_CHAR_CODE")
-
 # query desired data from specimen table
 # this will take a while to run
 fms <- sqlQuery(db,
@@ -61,7 +53,68 @@ fms <- sqlQuery(db,
 glimpse(fms) #overview of dataframe imported from access database
 odbcClose(db) #close database connection
 
+# load NPS flannelmouth recapture data #######
+# mostly from bright angel and shinumo trips
+
+#need to ask Brian
+#location info - what do station IDs mean, for fish without RM
+#are datetimes available, or only dates?
+#on shinumo trips, were hoop nets in mainstem or shinumo, and how do I tell?
+#BAC river mile numbering in station_id - where is it from?
+#                          what are negative RMs?
+#data we still need: anything location related, disposition code
+
+
+#load NPS flannelmouth data
+nps.filepath <- "\\\\FLAG-SERVER/Office/Grand Canyon Downstream/Databases/NPS_data/"
+nps.filename <- "NPS_FMS_data_forCharles03March2020.csv"
+
+#load NPS flannelmouth PIT tag data
+nps <- read.csv(paste0(nps.filepath, nps.filename), stringsAsFactors = FALSE)
+glimpse(nps)
+colnames(nps)
+
+#Fix location issues
+#rules: All COR captures on shinumo trips between rM 108 and 109.2
+#river mile may be in station notes or sample id
+
+#what columns will get deleted?
+colnames(nps)[(colnames(nps) %in% colnames(fms)) == FALSE]
+colnames(nps)[colnames(nps) %in% colnames(fms)]
+
+#what columns are missing from NPS data?
+colnames(fms)[colnames(fms) %in% colnames(nps) == FALSE]
+
+nps <- nps %>% #format dates
+  mutate(START_DATE = as.Date(START_DATE, format = "%m/%d/%Y"),
+         #convert to start datetime to match big boy data
+         START_DATETIME = as.POSIXct(paste(START_DATE, "12:00:00"))) %>%
+  select(c(colnames(nps)[colnames(nps) %in% colnames(fms)], STATION_ID)) %>%
+  filter(PITTAG != "") #remove fish that are not PIT tagged
+glimpse(nps)
+
+#NEED TO ASSIGN LOCATIONS/MILES STILL
+#assign RM to locations lacking that
+nps <- nps %>%
+  #if no RM on COR sites from SHI trips, assign 108.6
+  #Brian said all captures between RM108-109.2, 108.6 is middle
+  mutate(START_RM = case_when(RIVER_CODE == "COR" & is.na(START_RM) ~ 108.6,
+                              TRUE ~ START_RM))
+#STILL NEED TO FIX TRIB LOCATIONS
+
+nps <- nps %>%
+  select(-STATION_ID) #no longer needed, remove
+
+# join NPS data to big boy data
+fms <- fms %>%
+  bind_rows(nps)
+
+rm(nps) #no longer needed, remove
+
 # format and subset data ######
+fms <- fms %>% #don't need species column since they are all flannelmouth
+  select(-SPECIES_CODE) %>% #remove column
+  filter(is.na(PITTAG)) #remove non tagged fish
 
 # Fix frustrating things people did, like using 999 as NA, and writing comments
 # in the PITTAG field
@@ -71,8 +124,6 @@ fms$TOTAL_LENGTH <- ifelse(fms$TOTAL_LENGTH <= 1, NA, fms$TOTAL_LENGTH)
 
 fms$PITTAG <- ifelse(fms$PITTAG %in% c("N", "SCANNER KAPUT"), NA, fms$PITTAG)
 
-fms <- fms %>% #don't need species column since they are all flannelmouth
-  select(-SPECIES_CODE) #remove column
 
 #make sure all values make sense for that column, replace with NA if not
 unique(fms$SAMPLE_TYPE)
