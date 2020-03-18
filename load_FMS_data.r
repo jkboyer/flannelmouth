@@ -67,19 +67,18 @@ odbcClose(db) #close database connection
 
 #load NPS flannelmouth data
 nps.filepath <- "\\\\FLAG-SERVER/Office/Grand Canyon Downstream/Databases/NPS_data/"
-nps.filename <- "NPS_FMS_data_forCharles03March2020.csv"
+nps.filename <- "NPS_FMS_data_captures_forJan17March2020.csv"
 
 #load NPS flannelmouth PIT tag data
 nps <- read.csv(paste0(nps.filepath, nps.filename), stringsAsFactors = FALSE)
 glimpse(nps)
 colnames(nps)
 
-#Fix location issues
-#rules: All COR captures on shinumo trips between rM 108 and 109.2
-#river mile may be in station notes or sample id
+
 
 #what columns will get deleted?
 colnames(nps)[(colnames(nps) %in% colnames(fms)) == FALSE]
+#what columns will get kept?
 colnames(nps)[colnames(nps) %in% colnames(fms)]
 
 #what columns are missing from NPS data?
@@ -93,14 +92,36 @@ nps <- nps %>% #format dates
   filter(PITTAG != "") #remove fish that are not PIT tagged
 glimpse(nps)
 
-#NEED TO ASSIGN LOCATIONS/MILES STILL
+#Fix location issues (missing RMs
+#rules: All COR captures on shinumo trips between rM 108 and 109.2
+#stations labeled -1 in tribs are close to mouth
+# (below weir and within 200m of COR at BAC, below first barrier at HAV)
+#positive number station ids (1-5, 1-3) go from downstream to upstream
+#if station id is SHI, it should be station ID 1
 #assign RM to locations lacking that
+nps %>%
+  filter(is.na(START_RM)) %>%
+  group_by(RIVER_CODE, STATION_ID) %>%
+  summarize(n = n()) %>%
+  print(n = Inf)
+
 nps <- nps %>%
   #if no RM on COR sites from SHI trips, assign 108.6
   #Brian said all captures between RM108-109.2, 108.6 is middle
   mutate(START_RM = case_when(RIVER_CODE == "COR" & is.na(START_RM) ~ 108.6,
-                              TRUE ~ START_RM))
-#STILL NEED TO FIX TRIB LOCATIONS
+                              RIVER_CODE == "BAC" & STATION_ID == -1 ~ 88.3,
+                              RIVER_CODE == "HAV" ~ 157.3,
+                              # I think all SHI captures are below waterfall
+                              # but check with Brian
+                              RIVER_CODE == "SHI" ~ 109.3,
+                              TRUE ~ START_RM),
+         #for all trib fish near mouth, recode river to Colorado
+         RIVER_CODE = case_when(RIVER_CODE == "BAC" & STATION_ID == -1 ~ "COR",
+                                RIVER_CODE == "HAV" ~ "COR",
+                                # I think all SHI captures are below waterfall
+                                # but check with Brian
+                                RIVER_CODE == "SHI" ~ "COR",
+                                TRUE ~ RIVER_CODE))
 
 nps <- nps %>%
   select(-STATION_ID) #no longer needed, remove
@@ -114,7 +135,7 @@ rm(nps) #no longer needed, remove
 # format and subset data ######
 fms <- fms %>% #don't need species column since they are all flannelmouth
   select(-SPECIES_CODE) %>% #remove column
-  filter(is.na(PITTAG)) #remove non tagged fish
+  filter(!is.na(PITTAG)) #remove non tagged fish
 
 # Fix frustrating things people did, like using 999 as NA, and writing comments
 # in the PITTAG field
@@ -123,6 +144,38 @@ fms$START_RM <- ifelse(fms$START_RM == 999.00, NA, fms$START_RM)
 fms$TOTAL_LENGTH <- ifelse(fms$TOTAL_LENGTH <= 1, NA, fms$TOTAL_LENGTH)
 
 fms$PITTAG <- ifelse(fms$PITTAG %in% c("N", "SCANNER KAPUT"), NA, fms$PITTAG)
+
+#Incorrect PIT tag codes
+# . was omitted in some 3DD. entries
+fms <- fms %>%
+  mutate(length.tag = nchar(PITTAG),
+         PITTAG = toupper(PITTAG)) #capitalize pittag
+
+fms %>%
+  group_by(length.tag) %>%
+  summarize(n = n())
+
+#for lentgths of 13, if 4th character is not . add .
+fms %>%
+  filter(nchar(PITTAG) == 13 & str_detect(PITTAG, "\\.") == FALSE)
+
+fms <- fms %>%
+  mutate(PITTAG = case_when(nchar(PITTAG) == 13 & #one less than normal 14
+                              #and there is no . in PITTAG
+                              str_detect(PITTAG, "\\.") == FALSE ~
+                              paste0(substr(PITTAG, 1, 3), ".",
+                                     substr(PITTAG, 4, 13)),
+                            TRUE ~ PITTAG))
+
+fms <- fms %>%
+  mutate(length.tag = nchar(PITTAG))
+
+fms %>%
+  group_by(length.tag) %>%
+  summarize(n = n())
+#tags with 11 digits are old tags
+#tags with 14 digits are new tags
+#others are errors or missing digits - low enough numbers, just drop them.
 
 
 #make sure all values make sense for that column, replace with NA if not
