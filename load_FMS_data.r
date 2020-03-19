@@ -386,8 +386,9 @@ fms.pit.ant <- bind_rows(fms.pit, add)
 write.csv(fms.pit.ant, "./data/all_PIT_tagged_flannelmouth.csv",
           row.names = FALSE)
 
-#Adding NPS antenna BAC data in
+#Adding NPS antenna BAC data in (Laura's file path)
 NPS.ant <- read.csv("C:/Users/ltennant/Desktop/FMS_mark_recap/FMS_NPScaptures_on_BAC_antenna.csv")
+fms.pit <- read.csv("./data/all_PIT_tagged_flannelmouth.csv")
 
 #jan's filepaths
 NPSdataantenna <- "FMS_NPScaptures_on_BAC_antenna.csv"
@@ -424,10 +425,10 @@ NPS.ant <- NPS.ant %>%
  #our data to one record per fish per day
  #SIDE NOTE: we'd need to modify code if we had datetimes instead of dates
 
-
+library (plyr) #Needed plyr to rbind, bind_rows was having a problem with the Date
 #bind rows by column from antenna data to fms.pit data
-# fms.pit.ant <- rbind.fill(fms.pit, newdata)
-
+NPS.pit.ant <- rbind.fill(fms.pit, NPS.ant)
 
 #write new csv file with all gear types to FMS master csv
-
+write.csv(NPS.pit.ant, "./data/all_PIT_tagged_flannelmouth.csv",
+          row.names = FALSE)
