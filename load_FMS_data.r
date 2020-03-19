@@ -11,11 +11,15 @@
 #      of Rstudio only run 64-bit R) to use RODBC to connect to access database
 #      in Rstudio Tools/Global Options/General, click change button by R version
 
+#Things we still need to deal with
+# what is END_DATETIME from antenna, could it be dropped?
+# consolidate gear codes (i.e., HB = MHB)
+# subset to only data that will be used for analysis (maybe in another script)
+
+
 library(RODBC) #database interface
 library(tidyverse)
-library (plyr)
-library (dplyr) #need this for rbind.fill
-library (lubridate) #need this for date transformation
+library(lubridate) #need this for date transformation
 
 theme_set(theme_minimal()) #override ugly default ggplot theme
 
@@ -57,12 +61,10 @@ glimpse(fms) #overview of dataframe imported from access database
 
 # query desired antenna data from specimen table
 # this will take a while to run
-
 antenna <- sqlQuery(db,
                     paste("SELECT SAMPLE_TYPE, FISH_T_SAMPLE.TRIP_ID, GEAR_CODE,",
                           "RIVER_CODE, FISH_T_SAMPLE.START_DATETIME,",
                           "END_DATETIME, START_RKM, START_RM,",
-                          "SPECIES_CODE, TOTAL_LENGTH, FORK_LENGTH,",
                           "PITTAG",
                           "FROM SAMPLE_SPECIMEN_ALL",
                           "WHERE GEAR_CODE = 'CUPS_BAITED'
@@ -86,15 +88,6 @@ odbcClose(db) #close database connection
 # load NPS flannelmouth recapture data #######
 # mostly from bright angel and shinumo trips
 
-#need to ask Brian
-#location info - what do station IDs mean, for fish without RM
-#are datetimes available, or only dates?
-#on shinumo trips, were hoop nets in mainstem or shinumo, and how do I tell?
-#BAC river mile numbering in station_id - where is it from?
-#                          what are negative RMs?
-#data we still need: anything location related, disposition code
-
-
 #load NPS flannelmouth data
 nps.filepath <- "\\\\FLAG-SERVER/Office/Grand Canyon Downstream/Databases/NPS_data/"
 nps.filename <- "NPS_FMS_data_captures_forJan17March2020.csv"
@@ -102,17 +95,6 @@ nps.filename <- "NPS_FMS_data_captures_forJan17March2020.csv"
 #load NPS flannelmouth PIT tag data
 nps <- read.csv(paste0(nps.filepath, nps.filename), stringsAsFactors = FALSE)
 glimpse(nps)
-colnames(nps)
-
-
-
-#what columns will get deleted?
-colnames(nps)[(colnames(nps) %in% colnames(fms)) == FALSE]
-#what columns will get kept?
-colnames(nps)[colnames(nps) %in% colnames(fms)]
-
-#what columns are missing from NPS data?
-colnames(fms)[colnames(fms) %in% colnames(nps) == FALSE]
 
 nps <- nps %>% #format dates
   mutate(START_DATE = as.Date(START_DATE, format = "%m/%d/%Y"),
@@ -151,9 +133,7 @@ nps <- nps %>%
                                 # I think all SHI captures are below waterfall
                                 # but check with Brian
                                 RIVER_CODE == "SHI" ~ "COR",
-                                TRUE ~ RIVER_CODE))
-
-nps <- nps %>%
+                                TRUE ~ RIVER_CODE)) %>%
   select(-STATION_ID) #no longer needed, remove
 
 # join NPS data to big boy data
@@ -164,8 +144,7 @@ rm(nps) #no longer needed, remove
 
 # format and subset data ######
 fms <- fms %>% #don't need species column since they are all flannelmouth
-  select(-SPECIES_CODE) %>% #remove column
-  filter(!is.na(PITTAG)) #remove non tagged fish
+  select(-SPECIES_CODE) #remove column
 
 # Fix frustrating things people did, like using 999 as NA, and writing comments
 # in the PITTAG field
@@ -207,7 +186,6 @@ fms %>%
 #tags with 14 digits are new tags
 #others are errors or missing digits - low enough numbers, just drop them.
 
-
 #make sure all values make sense for that column, replace with NA if not
 unique(fms$SAMPLE_TYPE)
 unique(fms$TRIP_ID)
@@ -220,7 +198,7 @@ unique(fms$DISPOSITION_CODE)
 
 # get year from datetime
 fms <- fms %>%
-  mutate(year = substr( as.character(START_DATETIME), 1, 4))
+  mutate(year = substr(as.character(START_DATETIME), 1, 4))
 
 # If missing total length, calculate from fork length, and vice versa #####
 # calculate coefficients
@@ -294,8 +272,14 @@ fms <- fms %>%
                           TLtoFL.intercept + TLtoFL.slope*TOTAL_LENGTH,
                         TRUE ~ FORK_LENGTH))
 
-# fish captured in mouths of tributaries - recode as mainstem fish #####
+#save all FMS (including not tagged) to examine size structure, maturity
+write.csv(fms, "./data/all_flannelmouth.csv", row.names = FALSE)
 
+#filter to only PIT tagged fish ######
+fms <- fms %>%
+  filter(!is.na(PITTAG)) #remove non tagged fish
+
+# fish captured in mouths of tributaries - recode as mainstem fish #####
 #see what fish are in tributaries
 tribs <- fms %>%
   filter(RIVER_CODE != "COR")
@@ -304,8 +288,8 @@ tribs <- fms %>%
 # (e.g. HAV 157.26, SHI 108.6), and a low (<0.2) or no kilometer record
 # these fish can be reclassified as COR (mainstem) fish
 upstream.cutoff <- 0.2 #how many miles up a tributary we consider mainstem
-#ASK LAURA AND CHARLES HOW FAR UPSTREAM CUTOFF SHOULD BE
-
+#if start km < 0.2*1.609, or if start km is missing and start RM < 0.2,
+#reclassify as COR and assign start RM based on tributary
 
 fms <- fms %>%
   mutate(RIVER_CODE = case_when( #reclassify as COR if:
@@ -327,31 +311,17 @@ fms <- fms %>%
     #otherwise, keep river code unchanged
     TRUE ~ RIVER_CODE))
 
-#most trib records are recorded in km, but some are in RM
-
-#if start km < 0.2*1.609, or if start km is missing and start RM < 0.2,
-#reclassify as COR and assign start RM based on tributary
-
-#join confluence rkms to fms
-rivers <- sort(c(unique(fms$RIVER_CODE)))
-
 #dataframe of confluence locations in miles
 confluences <- data.frame(RIVER_CODE = sort(c(unique(fms$RIVER_CODE))),
                           confluence_RM = c(88.3, #BAC
                                             84.7, #CLR
                                             NA, #COR
-                                            136.9, #DRC
                                             157.3, #HAV
                                             144.0, #KAN
                                             61.8, #LCR
-                                            52.5, #NKW
                                             0.9, #PAR
-                                            260.3, #QUA
                                             109.3, #SHI
-                                            NA, #SHM does not exist, typo?
-                                            246.3, #SPE
-                                            248.7, #SUR
-                                            134.3)) #TAP
+                                            246.3)) #SPE
 
 fms <- fms %>% #join confluence miles to fms data
   left_join(confluences)
@@ -369,7 +339,6 @@ fms <- fms %>%
   select(-confluence_RM) #no longer needed, remove column
 
 #Questions still remaining:
-#   how far upstream do we consider mainstem?
 #   in LCR, what do negative kilometers mean?
 #   in LCR, what is mile 197?
 #   lots of zeros (especially in Shinumo). Confluence, or missing data?
@@ -383,34 +352,15 @@ tribs <- fms %>%
 #counts of fms in each tributary
 tribs %>%
   group_by(RIVER_CODE) %>%
-  summarize(n = n(),
-            n.rkm = sum(!is.na(START_RKM)),
-            n.rm = sum(!is.na(START_RM))) %>%
+  summarize(n = n()) %>%
   arrange(-n)
-#most trib records are recorded in km, but some are in RM
-#some Havasu records with RM 157.2 and some Paria records with 0.7 are clearly COR
 
 # subset to PIT tagged fish only for mark recap analysis #####
 fms.pit <- fms %>%
-  filter(!is.na(PITTAG)) %>%
   select(-c(SEX_CODE, SEX_COND_CODE, SEX_CHAR_CODE,
             PITTAG2, PITTAG2_RECAP, PITTAG3, PITTAG3_RECAP))
 
-#save data locally in R project data folder #######
-write.csv(fms, "./data/all_flannelmouth.csv", row.names = FALSE)
-write.csv(fms.pit, "./data/all_PIT_tagged_flannelmouth.csv",
-          row.names = FALSE)
-write.csv(antenna, "./data/all_BB_antenna_data.csv", row.names = FALSE)
-
-
-#####################################################################
-# "all_BB_antenna_data.csv" is all antenna related data from Big Boy only to be able to
-# associate PIT tags with master FMS file ("all_PIT_tagged_flannelmouth.csv").
-#
-# LAURA TO DO: add NPS antenna data in
-
-antenna <- read.csv("./data/all_BB_antenna_data.csv")
-fms.pit <- read.csv("./data/all_PIT_tagged_flannelmouth.csv")
+rm(confluences, fms.lengths, tribs) # no longer needed, remove
 
 #Making sure all antenna types are present and pulled from Big Boy
 unique(antenna$GEAR_CODE)
@@ -418,32 +368,20 @@ unique(antenna$GEAR_CODE)
 #Pull out matching FMS PIT tags from antenna observations
 add <- antenna[which(antenna$PITTAG %in% fms.pit$PITTAG),]
 
-#convert "START_DATETIME" time stamp to match fms.pit using pkg "Lubridate"
-add$newSTART_DATETIME <- gsub("/","-",add$START_DATETIME)
-add$formattedSTART_DATETIME <- parse_date_time(add$newSTART_DATETIME, orders="mdy_H!M!")
-
-#Do the same for "END_DATETIME"
-add$newEND_DATETIME <- gsub("/","-",add$END_DATETIME)
-add$formattedEND_DATETIME <- parse_date_time(add$newEND_DATETIME, orders="mdy_H!M!")
-
-#remove uninformative columns and reassign START and END date and time column names
-add1 <- add %>% select (-c(SPECIES_CODE, START_DATETIME, END_DATETIME,
-                           newSTART_DATETIME, newEND_DATETIME))
-colnames(add1)[10] <- "START_DATETIME"
-colnames(add1)[11] <- "END_DATETIME"
+add <- add %>% #format date as date
+  mutate(START_DATETIME = as.POSIXct(START_DATETIME),
+         END_DATETIME = as.POSIXct(END_DATETIME))
+glimpse(add)
 
 #Add year to "year" column and PITTAG_RECAP = "Y" column
-addyear <- add1 %>%
+add <- add %>%
   mutate(year = substr(as.character(START_DATETIME), 1, 4))
 
-addyear["PITTAG_RECAP"] <- "Y"
+add["PITTAG_RECAP"] <- "Y"
 
 #bind rows by column from antenna data to fms.pit data
-fms.pit.ant <- rbind.fill(fms.pit, addyear)
+fms.pit.ant <- bind_rows(fms.pit, add)
 
 #write new csv file with all gear types (except NPS antenna data)
-write.csv(fms.pit.ant, "./data/all_PIT_FMS_ant_added.csv",
+write.csv(fms.pit.ant, "./data/all_PIT_tagged_flannelmouth.csv",
           row.names = FALSE)
-
-
-
