@@ -385,3 +385,47 @@ fms.pit.ant <- bind_rows(fms.pit, add)
 #write new csv file with all gear types (except NPS antenna data)
 write.csv(fms.pit.ant, "./data/all_PIT_tagged_flannelmouth.csv",
           row.names = FALSE)
+
+#Adding NPS antenna BAC data in
+NPS.ant <- read.csv("C:/Users/ltennant/Desktop/FMS_mark_recap/FMS_NPScaptures_on_BAC_antenna.csv")
+
+#Clean up time column to reflect master FMS tag data
+NPS.ant$newdetected_at <- gsub("/","-",NPS.ant$detected_at)
+NPS.ant$formatteddetected_at <- parse_date_time(NPS.ant$newdetected_at,
+                                                orders="mdy")
+
+#Remove unneccessary columns (TOTAL_LENGTH and WEIGHT will be replaced with "NA"
+#when this file is merged with the FMS tag file)
+NPS.ant.rem <- NPS.ant %>% select(-c(START_DATE, SPECIES_CODE, STATION_ID, antenna,
+                                     detected_at, newdetected_at, TOTAL_LENGTH, WEIGHT,
+                                     GEAR_CODE, START_RM, RIVER_CODE, TRIP_ID))
+
+#Clean up column names to be the same as master FMS csv
+colnames(NPS.ant.rem)[1] <- "PITTAG"
+colnames(NPS.ant.rem)[2] <- "START_DATETIME"
+
+#Add year to "year" column, PITTAG_RECAP = "Y" column, GEAR_CODE = "NPS_BIOMARK_ANTENNA"
+#Brian Healy said the antenna detections of FMS are ONLY at the the BAC antenna
+#which is about 200 m upstream of the Colorado River in BAC, just below the lower campground bridge.
+#I am reassigning RIVER_CODE = "BAC" and as a mainstem antenna (START_RM = 88.3).
+NPS.ant.clean <- NPS.ant.rem %>%
+  mutate(year = substr(as.character(START_DATETIME), 1, 4))
+
+NPS.ant.clean["PITTAG_RECAP"] <- "Y"
+NPS.ant.clean["GEAR_CODE"] <- "NPS_BIOMARK_ANTENNA"
+NPS.ant.clean["RIVER_CODE"] <- "BAC"
+NPS.ant.clean["START_RM"] <- "88.3"
+
+
+#JAN - this is where I need your code
+#Clean up tags so there is only one unique PIT tag detection/day instead of multiples.
+
+
+
+
+#bind rows by column from antenna data to fms.pit data
+# fms.pit.ant <- rbind.fill(fms.pit, newdata)
+
+
+#write new csv file with all gear types to FMS master csv
+
