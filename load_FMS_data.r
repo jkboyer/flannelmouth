@@ -13,6 +13,9 @@
 
 library(RODBC) #database interface
 library(tidyverse)
+library (plyr)
+library (dplyr) #need this for rbind.fill
+library (lubridate) #need this for date transformation
 
 theme_set(theme_minimal()) #override ugly default ggplot theme
 
@@ -34,7 +37,7 @@ db <- odbcConnectAccess(paste(gcmrc.file.path, db.GCMRC, sep = ""))
 sqlTables(db)
 sqlColumns(db, "SAMPLE_SPECIMEN_ALL")$COLUMN_NAME
 
-# query desired data from specimen table
+# query desired FMS data from specimen table
 # this will take a while to run
 fms <- sqlQuery(db,
               paste("SELECT SAMPLE_TYPE, FISH_T_SAMPLE.TRIP_ID, GEAR_CODE,",
@@ -51,6 +54,33 @@ fms <- sqlQuery(db,
               na.strings = c(NA, "", " ", 999, -999, "#N/A")) #these values are all NA
 
 glimpse(fms) #overview of dataframe imported from access database
+
+# query desired antenna data from specimen table
+# this will take a while to run
+
+antenna <- sqlQuery(db,
+                    paste("SELECT SAMPLE_TYPE, FISH_T_SAMPLE.TRIP_ID, GEAR_CODE,",
+                          "RIVER_CODE, FISH_T_SAMPLE.START_DATETIME,",
+                          "END_DATETIME, START_RKM, START_RM,",
+                          "SPECIES_CODE, TOTAL_LENGTH, FORK_LENGTH,",
+                          "PITTAG",
+                          "FROM SAMPLE_SPECIMEN_ALL",
+                          "WHERE GEAR_CODE = 'CUPS_BAITED'
+                          OR GEAR_CODE = 'CUPS'
+                          OR GEAR_CODE = 'BK'
+                          OR GEAR_CODE = 'BK_BAITED'
+                          OR GEAR_CODE = 'BK_UNBAITED'
+                          OR GEAR_CODE = 'FS_B_24_HR'
+                          OR GEAR_CODE = 'HPR'
+                          OR GEAR_CODE = 'MUX2009'
+                          OR GEAR_CODE = 'MUX2011'
+                          OR GEAR_CODE = 'MUX2012'
+                          OR GEAR_CODE = 'MUX2013'"),
+                    stringsAsFactors = FALSE, #import strings as character, not factor
+                    na.strings = c(NA, "", " ", 999, -999, "#N/A")) #these values are all NA
+
+glimpse(antenna) #overview of dataframe imported from access database
+
 odbcClose(db) #close database connection
 
 # load NPS flannelmouth recapture data #######
@@ -370,4 +400,50 @@ fms.pit <- fms %>%
 write.csv(fms, "./data/all_flannelmouth.csv", row.names = FALSE)
 write.csv(fms.pit, "./data/all_PIT_tagged_flannelmouth.csv",
           row.names = FALSE)
+write.csv(antenna, "./data/all_BB_antenna_data.csv", row.names = FALSE)
+
+
+#####################################################################
+# "all_BB_antenna_data.csv" is all antenna related data from Big Boy only to be able to
+# associate PIT tags with master FMS file ("all_PIT_tagged_flannelmouth.csv").
+#
+# LAURA TO DO: add NPS antenna data in
+
+antenna <- read.csv("./data/all_BB_antenna_data.csv")
+fms.pit <- read.csv("./data/all_PIT_tagged_flannelmouth.csv")
+
+#Making sure all antenna types are present and pulled from Big Boy
+unique(antenna$GEAR_CODE)
+
+#Pull out matching FMS PIT tags from antenna observations
+add <- antenna[which(antenna$PITTAG %in% fms.pit$PITTAG),]
+
+#convert "START_DATETIME" time stamp to match fms.pit using pkg "Lubridate"
+add$newSTART_DATETIME <- gsub("/","-",add$START_DATETIME)
+add$formattedSTART_DATETIME <- parse_date_time(add$newSTART_DATETIME, orders="mdy_H!M!")
+
+#Do the same for "END_DATETIME"
+add$newEND_DATETIME <- gsub("/","-",add$END_DATETIME)
+add$formattedEND_DATETIME <- parse_date_time(add$newEND_DATETIME, orders="mdy_H!M!")
+
+#remove uninformative columns and reassign START and END date and time column names
+add1 <- add %>% select (-c(SPECIES_CODE, START_DATETIME, END_DATETIME,
+                           newSTART_DATETIME, newEND_DATETIME))
+colnames(add1)[10] <- "START_DATETIME"
+colnames(add1)[11] <- "END_DATETIME"
+
+#Add year to "year" column and PITTAG_RECAP = "Y" column
+addyear <- add1 %>%
+  mutate(year = substr(as.character(START_DATETIME), 1, 4))
+
+addyear["PITTAG_RECAP"] <- "Y"
+
+#bind rows by column from antenna data to fms.pit data
+fms.pit.ant <- rbind.fill(fms.pit, addyear)
+
+#write new csv file with all gear types (except NPS antenna data)
+write.csv(fms.pit.ant, "./data/all_PIT_FMS_ant_added.csv",
+          row.names = FALSE)
+
+
 
