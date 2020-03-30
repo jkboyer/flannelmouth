@@ -1,0 +1,40 @@
+GEAR_CODE,n,gear
+EL,32759,boat electrofishing
+HB,19364,baited hoop net
+HS,15285,unbaited hoop net
+MUX2012,8609,antenna
+MUX2009,7672,antenna
+MUX2013,7229,antenna
+MHB,5420,baited hoop net
+FS_B_24_HR,5256,antenna
+BK_UNBAITED,5184,antenna
+GFH,4215,unbaited hoop net
+MUX2011,3071,antenna
+CUPS_BAITED,3000,antenna
+TK,1890,trammel
+BK,1565,antenna
+CUPS,1276,antenna
+HMB,1182,baited hoop net
+TL,558,trammel
+SEN,374,seine
+MHS,201,baited hoop net
+T75,141,trammel
+SS,136,seine
+TS,123,trammel
+HN,61,unbaited hoop net
+SC,41,seine
+NPS_BIOMARK_ANTENNA,33,antenna
+BS,32,seine
+HM2,30,unbaited hoop net
+AN,18,angling
+HPR,14,antenna
+HM,11,unbaited hoop net
+T50,7,trammel
+TK75,7,trammel
+GX,2,gill net
+TM,2,trammel
+BL,1,seine
+DIP,1,dip net
+SA,1,seine
+SL,1,seine
+NA,1,NA
