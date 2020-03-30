@@ -430,7 +430,7 @@ gear.totals <- gear.totals %>%
 gear.totals
 
 #save gear totals in output
-write.csv("./data/output/gear_totals.csv", row.names = FALSE)
+write.csv(gear.totals, "./output/tables/gear_totals.csv", row.names = FALSE)
 
 #subset to only gear types to use #######
 # STILL NEED TO DO!!!
