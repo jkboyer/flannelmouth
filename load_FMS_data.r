@@ -429,11 +429,38 @@ gear.totals <- gear.totals %>%
   mutate(cumulative.percent = 100*(cumsum(n)/sum(n)))
 gear.totals
 
+#counts of unique fish by gear types
+gear.totals.unique <- fms.pit.ant %>%
+  group_by(gear) %>%
+  summarize(n = length(unique(PITTAG)),
+            percent = 100*(n/nrow(fms.pit.ant))) %>%
+  arrange(-n)
+gear.totals.unique
+
+gear.totals.unique <- gear.totals.unique %>%
+  mutate(cumulative.percent = 100*(cumsum(n)/sum(n)))
+gear.totals.unique
+
+gear.totals <- bind_rows(gear.totals, gear.totals.unique)
+
 #save gear totals in output
 write.csv(gear.totals, "./output/tables/gear_totals.csv", row.names = FALSE)
 
+fms.pit.ant %>% #see n for each antenna type
+  filter(gear %in% c("antenna temporary", "antenna permanent")) %>%
+  group_by(gear, GEAR_CODE, SAMPLE_TYPE) %>%
+  summarize(n = n(),
+            unique.fish = length(unique(PITTAG)),
+            ratio = unique.fish/n) %>%
+  arrange(-ratio)
+
 #subset to only gear types to use #######
-# STILL NEED TO DO!!!
+#these gear codes will keep 97% of fish captures
+#removing things like trammels, angling, seines will simplify calculation of
+#effort, but have little impact on sample size
+fms.pit.ant <- fms.pit.ant %>%
+  filter(gear %in% c("boat electrofishing", "baited hoop net",
+                     "unbaited hoop net", "antenna temporary"))
 
 #write new csv file with all gear types  #######
 write.csv(fms.pit.ant, "./data/all_PIT_tagged_flannelmouth.csv",
