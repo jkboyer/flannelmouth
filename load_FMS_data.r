@@ -462,6 +462,17 @@ fms.pit.ant <- fms.pit.ant %>%
   filter(gear %in% c("boat electrofishing", "baited hoop net",
                      "unbaited hoop net", "antenna temporary"))
 
+#simplify disposition codes to alive or dead
+unique(fms.pit.ant$DISPOSITION_CODE)
+
+fms.pit.ant <- fms.pit.ant %>%
+  mutate(disposition = case_when(
+    #NAs are either antenna records or missing data, reasonable to presume alive
+    DISPOSITION_CODE %in% c("RA", NA) ~ "alive",
+    #These codes mean fish was removed from population
+    DISPOSITION_CODE %in% c("DR", "DC", "DP", "TA") ~"dead"))
+
+
 #write new csv file with all gear types  #######
 write.csv(fms.pit.ant, "./data/all_PIT_tagged_flannelmouth.csv",
           row.names = FALSE)
