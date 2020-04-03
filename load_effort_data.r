@@ -1,4 +1,11 @@
 #Need to email brian and ask for shinumo sample/effort data
+#remove trailing letters (T, B, etc. from trip id)
+
+#Will group by:
+#1. Trip
+#2. time period: spring (Mar 1 - June 30) and
+#                fall (Aug 1 - Oct 31) each year
+#3. 8 km reach (measured from dam)
 
 #Load effort data
 library(tidyverse)
@@ -7,11 +14,10 @@ library(RODBC)
 #load some metric/english conversion fuctions I wrote
 source("./functions/conversion_functions.r")
 
-
 #load fish data to see what trips we need effort data for #####
 fms <- read.csv("./data/all_PIT_tagged_flannelmouth.csv", stringsAsFactors = FALSE)
 
-trip.ids = unique(fms$TRIP_ID)
+trip.ids <- unique(fms$TRIP_ID)
 trip.ids
 
 rm(fms) #no longer needed, remove
@@ -48,6 +54,11 @@ samples <- sqlQuery(db,
                 stringsAsFactors = FALSE, #import strings as character, not factor
                 na.strings = c(NA, "", " ", 999, -999, "#N/A")) #these values are all NA
 
+#antenna data has T on end of trip code cause was uploaded separately -
+#but is same trip, so remove T
+samples <- samples %>%
+  mutate(TRIP_ID = gsub("T", "", TRIP_ID))
+
 ##### subset to only gear types we will analyze #####
 #load gear type table
 gear <- read.csv("./data/gear_types.csv", stringsAsFactors = FALSE)
@@ -71,10 +82,10 @@ reach.km = 8
 samples <- samples %>%
   mutate(start_rkm = MileToKmCOR(START_RM), #calculate km from mile
          reach = cut(start_rkm, seq(0, 504, by = reach.km)), #bin into reaches
-         reach_no = as.numeric(reach_8km), #number each reach
-         reach_start = (reach_8km_no-1)*reach.km, #start point
-         reach_mid = reach_8km_start + reach.km/2, #mid point
-         reach_end = reach_8km_no*reach.km) %>% #end point
+         reach_no = as.numeric(reach), #number each reach
+         reach_start = (reach_no - 1)*reach.km, #start point
+         reach_mid = reach_start + reach.km/2, #mid point
+         reach_end = reach_no*reach.km) %>% #end point
 
   arrange(reach)
 
@@ -83,6 +94,22 @@ samples %>% #plot to see spatial distribution of samples
   geom_histogram()
 #yep, theres a lot of sampling at the LCR
 
+#subset to spring and fall only seasons #####
+# Spring: March to June
+# fall: August to October
+#create day variable (year is always the same, set to 2019)
+samples <- samples %>%
+  mutate(day = as.Date(paste0("2020",
+                                 substr(as.character(START_DATETIME), 5, 10))))
+
+samples <- samples %>%
+  mutate(season = case_when(day >= as.POSIXct("2020-03-01") &
+                              day <= as.POSIXct("2020-06-20") ~ "spring",
+                            day >= as.POSIXct("2020-08-01") &
+                              day <= as.POSIXct("2020-10-31") ~ "fall"))
+
+samples <- samples %>%
+  filter(season %in% c("spring", "fall"))
 
 #calculate effort per 5 miles per time block for each gear type
 #    el sites
@@ -91,10 +118,17 @@ samples %>% #plot to see spatial distribution of samples
 #    overnight antennas
 
 n.samples <- samples %>%
-  group_by(TRIP_ID, gear) %>%
-  summarize(n = n(),
-            n.type = length(unique(SAMPLE_TYPE)))
+  group_by(TRIP_ID, gear, season) %>%
+  summarize(n = n())
 
-n.samples.wide <- n.samples %>%
+n.samples <- n.samples %>%
   pivot_wider(names_from = gear, values_from = n,
               values_fill = list(n = 0)) #fill with zero if is NA
+
+#add season and year
+n.samples <- n.samples %>%
+  mutate(year = as.numeric(substr(TRIP_ID, 3, 6)))
+
+
+#when done, check that every fish trip/location/time has a corresponding
+#sample/effort record

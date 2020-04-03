@@ -153,3 +153,25 @@ fms %>%
   geom_histogram()
 
 
+#by time of year
+fms <- fms %>%
+  mutate(day = as.POSIXct(paste0("2019",
+                                substr(as.character(START_DATETIME), 5, 10))),
+         day)
+
+fms %>%
+  ggplot(aes(x = day)) +
+  geom_histogram(bins = 52) +
+  scale_x_datetime(date_breaks = "15 days", date_labels = "%b %d") +
+  scale_fill_viridis_d() +
+  theme(axis.text.x = element_text(angle = 90))
+
+fms %>%
+  ggplot(aes(x = day)) +
+  geom_bar() +
+  scale_x_datetime(date_breaks = "3 days",
+                   date_labels = "%b %d",
+                   limits = c(as.POSIXct("2019-10-01 00:00:00"),
+                              as.POSIXct("2019-11-15 00:00:00")))+
+  theme(axis.text.x = element_text(angle = 90))
+
