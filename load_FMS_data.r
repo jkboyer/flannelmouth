@@ -190,6 +190,78 @@ antenna <- antenna %>%
 
 rm(NPS.ant) #no longer needed, remove
 
+#FWS antenna data
+#NOTE ABOUT THIS DATASET: FWS cleans up the data already so there's only one unique PITTAG/day
+#so we don't need to do that in our code. There are two antenna types: submersible and
+#shore-based. Shore Based antennas were assigned to SAMPLE_TYPE 127 and submersible antennas
+#to SAMPLE_TYPE 128.GEAR_CODE is assigned as BK_BAITED or BK_UNBAITED. BK_UNBAITED
+#is true when SAMPLE_TYPE = 128 (when FWS forgot to bait antennas; n = 12 cases) OR
+#is a permanent shore-based antenna.
+
+#Adding FWS antenna data in (Laura's file path)
+FWS.ant <- read.csv("C:/Users/ltennant/Desktop/FMS_mark_recap/Antennas_COR_USFWS_update.csv",
+                    stringsAsFactors = FALSE,
+                    header = TRUE)
+
+#filter FMS only
+FWS.ant <- FWS.ant %>%
+  filter(Species == "FMS")
+
+#format date and time
+FWS.ant$newSTART_DATETIME <- gsub("/","-", FWS.ant$Datetime)
+FWS.ant$formattedSTART_DATETIME <- parse_date_time(FWS.ant$newSTART_DATETIME, orders="mdy_H!M!")
+
+#rename columns
+colnames(FWS.ant)[4] <- "PITTAG"
+colnames(FWS.ant)[6] <- "RIVER_CODE"
+colnames(FWS.ant)[7] <- "START_RM"
+colnames(FWS.ant)[10] <- "Antenna_ID"
+colnames(FWS.ant)[16] <- "START_DATETIME"
+
+#add columns (year and PITTAG_RECAP added in later code)
+FWS.ant <- FWS.ant %>%
+  mutate(year = substr(as.character(START_DATETIME), 1, 4))
+FWS.ant["PITTAG_RECAP"] <- "Y"
+FWS.ant["SAMPLE_TYPE"] <- "128"
+FWS.ant["GEAR_CODE"] <- "BK_BAITED"
+
+#format data to be numeric
+FWS.ant$START_RM <- as.numeric(FWS.ant$START_RM)
+FWS.ant$year <- as.numeric(FWS.ant$year)
+FWS.ant$SAMPLE_TYPE <- as.numeric(FWS.ant$SAMPLE_TYPE)
+
+#Havasu needs a START_RM
+FWS.ant <- FWS.ant %>%
+  mutate(START_RM = case_when(RIVER_CODE == "HAV" ~ 157.3,
+                              TRUE ~ START_RM))
+
+#two types of antennas: shore-based antennas need to be different sample type
+FWS.ant <- FWS.ant %>%
+  mutate(SAMPLE_TYPE = case_when(Antenna.Type == "Shore Based" ~ 127,
+                                 TRUE ~ SAMPLE_TYPE))
+
+#Designate gear type based on if baited antennas or not
+FWS.ant <- FWS.ant %>%
+  mutate(GEAR_CODE = case_when(Baited.Y.N == "N" ~ "BK_UNBAITED",
+                               TRUE ~ GEAR_CODE))
+
+#remove columns
+FWS.ant <- FWS.ant %>%
+  select (-c(Date, Time, Datetime, Species, Side,
+             X, X.1, newSTART_DATETIME, Baited.Y.N, Antenna.Type))
+
+#checking that SAMPLE_TYPE and GEAR_CODE parsed correctly
+FWS.ant %>%
+  group_by(GEAR_CODE, SAMPLE_TYPE) %>%
+  summarize(n = n()) %>%
+  arrange(-n)
+
+#join FWS antenna data to big boy and NPS antenna data
+antenna <- antenna %>%
+  bind_rows(FWS.ant)
+
+rm(FWS.ant) #no longer needed, remove
+
 # Fix various errors in data ######
 fms <- fms %>% #don't need species column since they are all flannelmouth
   select(-SPECIES_CODE) #remove column
@@ -337,7 +409,7 @@ confluences <- data.frame(RIVER_CODE = c("COR", "HAV", "LCR", "SHI"),
 fms <- fms %>% #join confluence miles to fms data
   left_join(confluences)
 
-# replace triburary code (LCR, HAV, SHI) with COR, and trib RM with confluence
+# replace tributary code (LCR, HAV, SHI) with COR, and trib RM with confluence
 #RM for fish caught near mouth of tributary
 fms <- fms %>%
   mutate(START_RM = case_when((RIVER_CODE != "COR" &
