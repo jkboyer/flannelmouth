@@ -166,7 +166,7 @@ NPS.ant <- NPS.ant %>%
 #which is about 200 m upstream of the Colorado River in BAC, just below the lower campground bridge.
 #I am reassigning RIVER_CODE = "BAC" and as a mainstem antenna (START_RM = 88.3).
 NPS.ant <- NPS.ant %>%
-  mutate(year = substr(as.character(START_DATETIME), 1, 4))
+  mutate(year = as.numeric(substr(as.character(START_DATETIME), 1, 4)))
 
 #add columns that big boy antenna data has and NPS data needs
 #these are the same for all NPS antenna data
@@ -199,10 +199,11 @@ rm(NPS.ant) #no longer needed, remove
 #is a permanent shore-based antenna.
 
 #Adding FWS antenna data in (Laura's file path)
-FWS.ant <- read.csv("C:/Users/ltennant/Desktop/FMS_mark_recap/Antennas_COR_USFWS_update.csv",
-                    stringsAsFactors = FALSE,
-                    header = TRUE)
-
+#FWS.ant <- read.csv("C:/Users/ltennant/Desktop/FMS_mark_recap/Antennas_COR_USFWS_update.csv",
+ #                   stringsAsFactors = FALSE,
+ #                   header = TRUE)
+FWS.ant <- read.csv("./data/Antennas_COR_USFWS_update.csv",
+                   stringsAsFactors = FALSE, header = TRUE)
 #filter FMS only
 FWS.ant <- FWS.ant %>%
   filter(Species == "FMS")
@@ -255,7 +256,10 @@ FWS.ant %>%
   group_by(GEAR_CODE, SAMPLE_TYPE) %>%
   summarize(n = n()) %>%
   arrange(-n)
-
+FWS.ant <- FWS.ant %>%
+  mutate(year = as.numeric(substr(as.character(START_DATETIME), 1, 4)))
+glimpse(FWS.ant)
+glimpse(antenna)
 #join FWS antenna data to big boy and NPS antenna data
 antenna <- antenna %>%
   bind_rows(FWS.ant)
@@ -548,3 +552,4 @@ fms.pit.ant <- fms.pit.ant %>%
 #write new csv file with all gear types  #######
 write.csv(fms.pit.ant, "./data/all_PIT_tagged_flannelmouth.csv",
           row.names = FALSE)
+
