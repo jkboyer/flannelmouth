@@ -1,4 +1,6 @@
-#Need to email brian and ask for shinumo sample/effort data
+#ADD: NPS data
+#     antenna calculations
+
 #remove trailing letters (T, B, etc. from trip id)
 
 #Will group by:
@@ -57,7 +59,8 @@ samples <- sqlQuery(db,
 #antenna data has T on end of trip code cause was uploaded separately -
 #but is same trip, so remove T
 samples <- samples %>%
-  mutate(TRIP_ID = gsub("T", "", TRIP_ID))
+  mutate(TRIP_ID = str_remove(TRIP_ID, "[[:alpha:]]$"))
+
 
 ##### subset to only gear types we will analyze #####
 #load gear type table
@@ -67,11 +70,20 @@ gear <- gear %>%
   select(-n)
 
 samples <- samples %>% #join gear type to sample data
-  left_join(gear)  %>%
-  #subset to only the gear types we are analyzing
+  left_join(gear)
+
+#one gear type is confusingly permanent and temporary antennas
+#BK_UNBAITED is permanent if 141 and 127. Otherwise temporary
+unique(samples$SAMPLE_TYPE[samples$GEAR_CODE == "BK_UNBAITED"])
+samples <- samples %>%
+  mutate(gear = case_when(GEAR_CODE == "BK_UNBAITED" &
+                            SAMPLE_TYPE %in% c(127, 141) ~ "antenna permanent",
+                          TRUE ~ gear))
+
+#subset to only the gear types we are analyzing
+samples <- samples %>%
   filter(gear %in% c("boat electrofishing", "baited hoop net",
                      "unbaited hoop net", "antenna temporary"))
-
 
 ### recode tributary samples near mouth as mainstem ######
 
@@ -111,7 +123,16 @@ samples <- samples %>%
 samples <- samples %>%
   filter(season %in% c("spring", "fall"))
 
-#calculate effort per 5 miles per time block for each gear type
+
+# calculate days of effort for antennas ########
+
+#load all fish antenna data (maybe save an antenna copy from other script)
+
+#classify as permanent/temporary
+
+#collapse by Sample id or sample day (may n
+
+#calculate effort per 5 miles per time block for each gear type #######
 #    el sites
 #    baited hoops
 #    unbaited hoops
@@ -129,6 +150,7 @@ n.samples <- n.samples %>%
 n.samples <- n.samples %>%
   mutate(year = as.numeric(substr(TRIP_ID, 3, 6)))
 
-
 #when done, check that every fish trip/location/time has a corresponding
 #sample/effort record
+
+
