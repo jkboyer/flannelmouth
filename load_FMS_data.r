@@ -42,7 +42,7 @@ reach.km = 8
 
 # load data from big boy database ######
 # database file name: UPDATE to most recent version here
-db.GCMRC <- "FISH_SAMPLE_SPECIMEN_HISTORY_20200318_1541.mdb"
+db.GCMRC <- "FISH_SAMPLE_SPECIMEN_HISTORY_20200415_2011.mdb"
 
 # specify file location of GCMRC database
 #Laura's working file path
