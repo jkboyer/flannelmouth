@@ -1,4 +1,5 @@
 #add code to extract effort info from antennas (if not present in sites data)
+#LOAD BRIAN EFFORT DATA
 
 #loads data
 #1. all PIT tagged FMS records in GCMRC database for mark-recapture analysis
@@ -14,10 +15,7 @@
 #      of Rstudio only run 64-bit R) to use RODBC to connect to access database
 #      in Rstudio Tools/Global Options/General, click change button by R version
 
-#Things we still need to deal with
-# consolidate gear codes (i.e., HB = MHB)
-# subset to only data that will be used for analysis (maybe in another script)
-
+#setup: load packages, data, define subsetting criteria ######
 library(RODBC) #database interface
 library(tidyverse)
 library(lubridate) #need this for date transformation
@@ -27,28 +25,32 @@ theme_set(theme_minimal()) #override ugly default ggplot theme
 #load some metric/english conversion fuctions I wrote
 source("./functions/conversion_functions.r")
 
-#define our subsetting cutoffs ######
+#define cutoffs to use for subsetting data
 start.year <- 2004
-#note - all have current year, because will calculate a day variable where
-#all dates have current year for subsetting purposes
-start.spring <- as.POSIXct("2020-03-01")
-end.spring <- as.POSIXct("2020-06-20")
-start.fall <- as.POSIXct("2020-08-01")
-end.fall <- as.POSIXct("2020-10-31")
+#season cutoffs - %j is day of year and will be same day regardless of year
+start.spring <- strftime(as.POSIXct("2020-03-01"), format = "%j")
+end.spring <- strftime(as.POSIXct("2020-06-20"), format = "%j")
+start.fall <- strftime(as.POSIXct("2020-08-01"), format = "%j")
+end.fall <- strftime(as.POSIXct("2020-10-31"), format = "%j")
 
-gear.types.keep <- c("boat electrofishing", "baited hoop net",
-                     "unbaited hoop net", "antenna temporary")
+#gear types to keep
+#these are aggregated (e.g. baited hoop net includes HB, MHB, and more, see
+#                      gear_types.csv for grouping)
+gear.types.keep <- c("boat_electrofishing", "baited_hoop_net",
+                     "unbaited_hoop_net", "antenna_temporary")
 
-#load data from big boy database ######
+#length of reach used to bin data for cauchy distribution
+reach.km = 8
 
-# define database file name as most recent version here
+# load data from big boy database ######
+# database file name: UPDATE to most recent version here
 db.GCMRC <- "FISH_SAMPLE_SPECIMEN_HISTORY_20200318_1541.mdb"
 
 # specify file location of GCMRC database
 #Laura's working file path
 gcmrc.file.path <- "M:/Lovich/Laura Tennant work folder/GCMRC/FMS_mark_recap/"
-#Jan's working file path
-gcmrc.file.path <- "\\\\flag-server/Office/GCMRC_master_database/"
+#Jan's work file path
+#gcmrc.file.path <- "\\\\flag-server/Office/GCMRC_master_database/"
 #Jan's coronavirus work from home filepath
 gcmrc.file.path <- "C:/Users/jboyer/Documents/big_boy/"
 
@@ -122,7 +124,7 @@ samples <- sqlQuery(db,
 
 odbcClose(db) #close database connection
 
-# load NPS flannelmouth data - captures in tribs and bright angel antenna #######
+# load additional data from NPS and FWS ######
 # capture data mostly from bright angel and shinumo (mainstem sampling) trips
 
 #load NPS flannelmouth data
@@ -179,6 +181,10 @@ fms <- fms %>%
   bind_rows(nps)
 
 rm(nps) #no longer needed, remove
+
+#NPS data is from BAC antenna, and shinumo area mainstem hoopnetting trips
+#FWS data is submersible antenna data, will eventually be in big boy, but is
+#not yet in big boy
 
 #NPS antenna data
 #Adding NPS antenna BAC data in (Laura's file path)
@@ -278,13 +284,13 @@ FWS.ant <- FWS.ant %>%
 
 #Designate gear type based on if baited antennas or not
 FWS.ant <- FWS.ant %>%
-  mutate(GEAR_CODE = case_when(Baited.Y.N == "N" ~ "BK_UNBAITED",
+  mutate(GEAR_CODE = case_when(Baited == "N" ~ "BK_UNBAITED",
                                TRUE ~ GEAR_CODE))
 
 #remove columns
 FWS.ant <- FWS.ant %>%
   select (-c(Date, Time, Datetime, Species, Side,
-             X, X.1, newSTART_DATETIME, Baited.Y.N, Antenna.Type))
+             X, X.1, newSTART_DATETIME, Baited, Antenna.Type))
 
 #DOES NOT HAVE SAMPLE_id
 #create one from trip id+ antenna ID
@@ -311,7 +317,6 @@ antenna <- antenna %>%
   bind_rows(FWS.ant)
 
 rm(FWS.ant) #no longer needed, remove
-
 
 # Fix various errors in data ######
 fms <- fms %>% #don't need species column since they are all flannelmouth
@@ -431,13 +436,19 @@ fms <- fms %>%
 #save all FMS (including not tagged) to examine size structure, maturity
 write.csv(fms, "./data/all_flannelmouth.csv", row.names = FALSE)
 
-#subset to only PIT tagged fish captured since 2004 ######
+#subset to only PIT tagged fish captured since start year (2004) ######
 fms <- fms %>%
   filter(!is.na(PITTAG) & #remove non tagged fish
           length.tag == 14) %>% #new tags have 14 digits
-  filter(year >= 2004) %>%
+  filter(year >= start.year) %>%
   select(-c(SEX_CODE, SEX_COND_CODE, SEX_CHAR_CODE, length.tag,
             PITTAG2, PITTAG2_RECAP, PITTAG3, PITTAG3_RECAP))
+
+#also subset the sample dataframe
+samples <- samples  %>%
+  filter(START_DATETIME >= as.POSIXct(paste0(start.year, "-01-01 00:0:01")))
+
+#don't need to subset antennas by year, they were not used until 2009
 
 # fish captured in mouths of tributaries - recode as mainstem fish #####
 #see what fish are in tributaries
@@ -510,12 +521,10 @@ rm(confluences, fms.lengths, tribs, lm.FL.to.TL, lm.TL.to.FL) # no longer needed
 
 # calculate sampling effort ############
 
-#antenna data has T on end of trip code cause was uploaded separately -
+#data has T on end of trip code cause was uploaded separately -
 #but is same trip, so remove T
 samples <- samples %>%
   mutate(TRIP_ID = str_remove(TRIP_ID, "[[:upper:]]$"))
-
-#also do that for fms and antenna data
 fms <- fms %>%
   mutate(TRIP_ID = str_remove(TRIP_ID, "[[:upper:]]$"))
 antenna <- antenna %>%
@@ -526,43 +535,67 @@ unique(samples$TRIP_ID)
 unique(fms$TRIP_ID)
 unique(antenna$TRIP_ID)
 
-##### subset to only gear types we will analyze #####
+# perform final subsetting of data #####
+#based on year, season, and gear type (see top of script for exact criteria)
 #load gear type table
 gear <- read.csv("./data/gear_types.csv", stringsAsFactors = FALSE)
 
 gear <- gear %>%
   select(-n)
+#join generalized gear type to fish and sample data
 
-samples <- samples %>% #join gear type to sample data
-  left_join(gear)
-
+fms <- fms %>%
+  left_join(gear) %>%
 #one gear type is confusingly permanent and temporary antennas
 #BK_UNBAITED is permanent if 141 and 127. Otherwise temporary
-unique(samples$SAMPLE_TYPE[samples$GEAR_CODE == "BK_UNBAITED"])
-samples <- samples %>%
   mutate(gear = case_when(GEAR_CODE == "BK_UNBAITED" &
-                            SAMPLE_TYPE %in% c(127, 141) ~ "antenna permanent",
-                          TRUE ~ gear))
+                            SAMPLE_TYPE %in% c(127, 141) ~ "antenna_permanent",
+                          TRUE ~ gear)) %>%
+  mutate(day = strftime(START_DATETIME, format = "%j")) %>%
+  filter(gear %in% gear.types.keep) %>% #subset to gear types to analyze
+  filter((day >= start.spring & day <= end.spring) | #spring or fall only
+           (day >= start.fall & day <= end.fall)) %>%
+  #add variable for season
+  mutate(season = case_when(day >= start.spring & day <= end.spring ~ "spring",
+                            day >= start.fall & day <= end.fall ~ "fall"))
 
-#subset to only the gear types we are analyzing
+antenna <- antenna %>%
+  left_join(gear) %>%
+  mutate(gear = case_when(GEAR_CODE == "BK_UNBAITED" &
+                            SAMPLE_TYPE %in% c(127, 141) ~ "antenna_permanent",
+                          TRUE ~ gear)) %>%
+  mutate(day = strftime(START_DATETIME, format = "%j")) %>%
+  filter(gear %in% gear.types.keep) %>% #gear type - temporary antennas only
+  filter((day >= start.spring & day <= end.spring) | #spring or fall only
+           (day >= start.fall & day <= end.fall)) %>%
+  #add variable for season
+  mutate(season = case_when(day >= start.spring & day <= end.spring ~ "spring",
+                            day >= start.fall & day <= end.fall ~ "fall"))
+
 samples <- samples %>%
-  filter(gear %in% c("boat electrofishing", "baited hoop net",
-                     "unbaited hoop net", "antenna temporary"))
-
-### recode tributary samples near mouth as mainstem ######
+  left_join(gear) %>%
+  mutate(day = strftime(START_DATETIME, format = "%j")) %>%
+  mutate(gear = case_when(GEAR_CODE == "BK_UNBAITED" &
+                            SAMPLE_TYPE %in% c(127, 141) ~ "antenna_permanent",
+                          TRUE ~ gear)) %>%
+  filter(gear %in% gear.types.keep) %>% #filter by gear type
+  filter((day >= start.spring & day <= end.spring) | #spring or fall only
+           (day >= start.fall & day <= end.fall)) %>%
+  #add variable for season
+  mutate(season = case_when(day >= start.spring & day <= end.spring ~ "spring",
+                            day >= start.fall & day <= end.fall ~ "fall"))
 
 #for each trip, bin into 5 miles (counting from dam) ######
 #define length of reach to bin samples in to
-reach.km = 8
+
 #convert river mile to kilometer
-samples <- samples %>%
-  mutate(start_rkm = MileToKmCOR(START_RM), #calculate km from mile
+samples <- samples %>% #calculate km from mile, or insert NA if tributary
+  mutate(start_rkm = case_when(RIVER_CODE == "COR" ~ MileToKmCOR(START_RM)),
          reach = cut(start_rkm, seq(0, 504, by = reach.km)), #bin into reaches
          reach_no = as.numeric(reach), #number each reach
          reach_start = (reach_no - 1)*reach.km, #start point
          reach_mid = reach_start + reach.km/2, #mid point
          reach_end = reach_no*reach.km) %>% #end point
-
   arrange(reach)
 
 samples %>% #plot to see spatial distribution of samples
@@ -570,53 +603,106 @@ samples %>% #plot to see spatial distribution of samples
   geom_histogram()
 #yep, theres a lot of sampling at the LCR
 
-#subset to spring and fall only seasons #####
-# Spring: March to June
-# fall: August to October
-#create day variable (year is always the same, set to 2019)
-samples <- samples %>%
-  mutate(day = as.Date(paste0("2020",
-                              substr(as.character(START_DATETIME), 5, 10))))
+fms <- fms %>%#calculate km from mile, or insert NA if tributary
+  mutate(start_rkm = case_when(RIVER_CODE == "COR" ~ MileToKmCOR(START_RM)),
+         reach = cut(start_rkm, seq(0, 504, by = reach.km)), #bin into reaches
+         reach_no = as.numeric(reach), #number each reach
+         reach_start = (reach_no - 1)*reach.km, #start point
+         reach_mid = reach_start + reach.km/2, #mid point
+         reach_end = reach_no*reach.km)
 
-samples <- samples %>%
-  mutate(season = case_when(day >= as.POSIXct("2020-03-01") &
-                              day <= as.POSIXct("2020-06-20") ~ "spring",
-                            day >= as.POSIXct("2020-08-01") &
-                              day <= as.POSIXct("2020-10-31") ~ "fall"))
-
-samples <- samples %>%
-  filter(season %in% c("spring", "fall"))
-
-
+antenna <- antenna %>%#calculate km from mile, or insert NA if tributary
+  mutate(start_rkm = case_when(RIVER_CODE == "COR" ~ MileToKmCOR(START_RM)),
+         reach = cut(start_rkm, seq(0, 504, by = reach.km)), #bin into reaches
+         reach_no = as.numeric(reach), #number each reach
+         reach_start = (reach_no - 1)*reach.km, #start point
+         reach_mid = reach_start + reach.km/2, #mid point
+         reach_end = reach_no*reach.km)
 # calculate days of effort for antennas ########
+#trip id, reach_start, year + season
 
-#load all fish antenna data (maybe save an antenna copy from other script)
+#MAY NEED TO ADJUST NAMES TO MERGE TO MAIN EFFORT TABLE
+#antenna effort by trip, season, 8km reach, year
+antenna.effort <- antenna %>%
+  filter(gear == "antenna_temporary") %>%
+  group_by(TRIP_ID, reach_start, year, season) %>%
+  summarize(antenna.effort.calc = length(unique(SAMPLE_ID)))
 
-#classify as permanent/temporary
+#antenna effort by trip, season, year (NOT split by reach)
+antenna.effort.trip <- antenna %>%
+  filter(gear == "antenna_temporary") %>%
+  group_by(TRIP_ID, year, season) %>%
+  summarize(antenna.effort.calc = length(unique(SAMPLE_ID)))
 
-#collapse by Sample id or sample day (may n
+# finalize subsetting ########
+#antennas - only keep fish also in fms dataframe
+#this will remove other species, FMS tagged before 2004 or in wrong season, etc.
+antenna <- antenna %>%
+  filter(PITTAG %in% unique(fms$PITTAG)) #only keep tags that match tag in fms
+
+#samples - only keep data from trips we are using data from
+#this will remove trips in wrong season
+samples <- samples %>%
+#keep only trips that we are using FMS data from
+  filter(TRIP_ID %in% c(unique(fms$TRIP_ID), unique(antenna$TRIP_ID)))
+
+#merge antenna data onto fms data ########
+fms <- fms %>%
+  mutate(year = as.numeric(year)) %>%
+  bind_rows(antenna)
+
+rm(antenna) #no longer need separate file, now it is on fish data
+
+#antennas calculated from sample and antennas calculated from fms
+#ccheck match, replace 0s from sample with fms
 
 #calculate effort per 5 miles per time block for each gear type #######
-#    el sites
-#    baited hoops
-#    unbaited hoops
-#    overnight antennas
 
+samples <- samples %>%
+  mutate(year = as.numeric(substr(START_DATETIME, 1, 4)))
+
+#effort by trip, year, season, 8km reach
 n.samples <- samples %>%
-  group_by(TRIP_ID, gear, season) %>%
+  group_by(TRIP_ID, gear, season, year, reach_start) %>%
   summarize(n = n())
 
 n.samples <- n.samples %>%
   pivot_wider(names_from = gear, values_from = n,
               values_fill = list(n = 0)) #fill with zero if is NA
 
-#add season and year
+#effort by trip, year, season (no reach grouping)
+n.samples.trip <- samples %>%
+  group_by(TRIP_ID, gear, season, year) %>%
+  summarize(n = n())
+
+n.samples.trip <- n.samples.trip %>%
+  pivot_wider(names_from = gear, values_from = n,
+              values_fill = list(n = 0)) #fill with zero if is NA
+
+#add on calculated anntenna effort if antenna effort is missing
 n.samples <- n.samples %>%
-  mutate(year = as.numeric(substr(TRIP_ID, 3, 6)))
+  left_join(antenna.effort)
 
+n.samples.trip <- n.samples.trip %>%
+  left_join(antenna.effort.trip)
 
-samples <- samples %>%
-  filter(year >= ))
+#check that there is no overlap (number in antenna temporary or n, not both)
+#move n (calculated antenna effort) into antenna temporary colulmn
+n.samples <- n.samples %>%
+  mutate(antenna_temporary = case_when( #if no value for antenna temporary and
+    #there is a calculated value, replace with calculated value
+    antenna_temporary == 0 & !is.na(antenna.effort.calc) ~ antenna.effort.calc,
+    #otherwise, keep antenna_temporary effort count
+    TRUE ~ antenna_temporary)) %>%
+  select(-antenna.effort.calc) #no longer needed, remove
+
+n.samples.trip <- n.samples.trip %>%
+  mutate(antenna_temporary = case_when( #if no value for antenna temporary and
+    #there is a calculated value, replace with calculated value
+    antenna_temporary == 0 & !is.na(antenna.effort.calc) ~ antenna.effort.calc,
+    #otherwise, keep antenna_temporary effort count
+    TRUE ~ antenna_temporary)) %>%
+  select(-antenna.effort.calc) #no longer needed, remove
 
 #when done, check that every fish trip/location/time has a corresponding
 #sample/effort record
@@ -644,7 +730,7 @@ antenna <- antenna %>% #join generalized gear type to antenna data
 unique(antenna$SAMPLE_TYPE[antenna$GEAR_CODE == "BK_UNBAITED"])
 antenna <- antenna %>%
   mutate(gear = case_when(GEAR_CODE == "BK_UNBAITED" &
-                            SAMPLE_TYPE %in% c(127, 141) ~ "antenna permanent",
+                            SAMPLE_TYPE %in% c(127, 141) ~ "antenna_permanent",
                           TRUE ~ gear))
 
 #remove permanent antennas
@@ -722,7 +808,7 @@ gear.totals <- bind_rows(gear.totals, gear.totals.unique)
 write.csv(gear.totals, "./output/tables/gear_totals.csv", row.names = FALSE)
 
 fms.pit.ant %>% #see n for each antenna type
-  filter(gear %in% c("antenna temporary", "antenna permanent")) %>%
+  filter(gear %in% c("antenna_temporary", "antenna_permanent")) %>%
   group_by(gear, GEAR_CODE, SAMPLE_TYPE) %>%
   summarize(n = n(),
             unique.fish = length(unique(PITTAG)),
@@ -734,8 +820,8 @@ fms.pit.ant %>% #see n for each antenna type
 #removing things like trammels, angling, seines will simplify calculation of
 #effort, but have little impact on sample size
 fms.pit.ant <- fms.pit.ant %>%
-  filter(gear %in% c("boat electrofishing", "baited hoop net",
-                     "unbaited hoop net", "antenna temporary"))
+  filter(gear %in% c("boat_electrofishing", "baited_hoop_net",
+                     "unbaited_hoop_net", "antenna_temporary"))
 
 #simplify disposition codes to alive or dead
 unique(fms.pit.ant$DISPOSITION_CODE)
@@ -755,7 +841,7 @@ unique(fms.pit.ant$TRIP_ID)
 fms.pit.ant <- fms.pit.ant %>%
   mutate(TRIP_ID = str_remove(TRIP_ID, "[[:alpha:]]$"))
 
-#write new csv file with all gear types  #######
+#save new csv file with all gear types  #######
 write.csv(fms.pit.ant, "./data/all_PIT_tagged_flannelmouth.csv",
           row.names = FALSE)
 
