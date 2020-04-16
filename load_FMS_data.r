@@ -1,5 +1,3 @@
-#add code to extract effort info from antennas (if not present in sites data)
-#LOAD BRIAN EFFORT DATA
 
 #loads data
 #1. all PIT tagged FMS records in GCMRC database for mark-recapture analysis
@@ -136,11 +134,18 @@ nps.filename <- "NPS_FMS_data_captures_forJan17March2020.csv"
 nps <- read.csv(paste0(nps.filepath, nps.filename), stringsAsFactors = FALSE)
 glimpse(nps)
 
+#nps.sample data
+nps.sample <- read.csv("./data/NPS_shinumo_nets_sample.csv",
+                       stringsAsFactors = FALSE)
+
+
 nps <- nps %>% #format dates
   mutate(START_DATE = as.Date(START_DATE, format = "%m/%d/%Y"),
          #convert to start datetime to match big boy data
-         START_DATETIME = as.POSIXct(paste(START_DATE, "12:00:00"))) %>%
-  select(c(colnames(nps)[colnames(nps) %in% colnames(fms)], STATION_ID)) %>%
+         START_DATETIME = as.POSIXct(paste(START_DATE, "12:00:00")))
+
+nps <- nps %>%
+  select(c(colnames(nps)[colnames(nps) %in% colnames(fms)])) %>%
   filter(PITTAG != "") #remove fish that are not PIT tagged
 glimpse(nps)
 
@@ -181,6 +186,27 @@ fms <- fms %>%
   bind_rows(nps)
 
 rm(nps) #no longer needed, remove
+
+nps.sample <- nps.sample %>%
+  mutate(SAMPLE_ID = paste0("NPS", ACCESS_SAMPLE_ID)) %>%
+  select(-c(ACCESS_SAMPLE_ID, DATASHEET_SAMPLE_ID)) %>%
+  #the dates and times are formatted wrong! fix them. datetimes are frustrating!
+  mutate(START_DATE = as.Date(START_DATE, format = "%m/%d/%Y"),
+         END_DATE = as.Date(END_DATE, format = "%m/%d/%Y"),
+         START_DATETIME = as.POSIXct(paste0(as.character(START_DATE), " ",
+                                 START_TIME, ":00")),
+         END_DATETIME = as.POSIXct(paste0(as.character(END_DATE), " ",
+                                 END_TIME, ":00")),
+         #NPS data did not have river mile, but they sample between
+         #bass rapid and shinumo, so this is halfway point
+         START_RM = 108.9,
+         RIVER_CODE = "COR") %>%
+  select(-c(START_DATE, START_TIME, END_DATE, END_TIME))
+colnames(nps.sample) %in% colnames(samples)
+
+samples <- samples %>%
+  mutate(SAMPLE_ID = as.character(SAMPLE_ID)) %>%
+  bind_rows(nps.sample)
 
 #NPS data is from BAC antenna, and shinumo area mainstem hoopnetting trips
 #FWS data is submersible antenna data, will eventually be in big boy, but is
@@ -663,7 +689,7 @@ samples <- samples %>%
 
 #effort by trip, year, season, 8km reach
 n.samples <- samples %>%
-  group_by(TRIP_ID, gear, season, year, reach_start) %>%
+  group_by(TRIP_ID, gear, season, year, reach_start, RIVER_CODE) %>%
   summarize(n = n())
 
 n.samples <- n.samples %>%
@@ -672,7 +698,7 @@ n.samples <- n.samples %>%
 
 #effort by trip, year, season (no reach grouping)
 n.samples.trip <- samples %>%
-  group_by(TRIP_ID, gear, season, year) %>%
+  group_by(TRIP_ID, gear, season, year, RIVER_CODE) %>%
   summarize(n = n())
 
 n.samples.trip <- n.samples.trip %>%
@@ -707,82 +733,12 @@ n.samples.trip <- n.samples.trip %>%
 #when done, check that every fish trip/location/time has a corresponding
 #sample/effort record
 
-
-
-
-# antenna data - keep only if matching record in FMS #######
-
-#Making sure all antenna types are present and pulled from Big Boy
-unique(antenna$GEAR_CODE)
-
-#assign season and river mile to antenna dataframe
-#load gear type table
-gear <- read.csv("./data/gear_types.csv", stringsAsFactors = FALSE)
-
-gear <- gear %>%
-  select(-n)
-
-antenna <- antenna %>% #join generalized gear type to antenna data
-  left_join(gear)
-
-#one gear type is confusingly permanent and temporary antennas
-#BK_UNBAITED is permanent if 141 and 127. Otherwise temporary
-unique(antenna$SAMPLE_TYPE[antenna$GEAR_CODE == "BK_UNBAITED"])
-antenna <- antenna %>%
-  mutate(gear = case_when(GEAR_CODE == "BK_UNBAITED" &
-                            SAMPLE_TYPE %in% c(127, 141) ~ "antenna_permanent",
-                          TRUE ~ gear))
-
-#remove permanent antennas
-antenna <- antenna %>%
-  filter(gear == "antenna temporary")
-
-#assign season and reach
-
-#first, calculate antenna-nights of effort
-antenna.effort <- antenna %>%
-  group_by(TRIP_ID, gear) %>%
-  summarize(n = n())
-
-
-
-
-#for FWS data (missing sample ID, but has antenna ID)
-#make antenna id the sa
-#filter FMS only
-#FWS.ant <- FWS.ant %>%
-# filter(Species == "FMS")
-#Pull out matching FMS PIT tags from antenna observations
-add <- antenna[which(antenna$PITTAG %in% fms$PITTAG),]
-
-add <- add %>% #format date as date
-  mutate(START_DATETIME = as.POSIXct(START_DATETIME),
-         END_DATETIME = as.POSIXct(END_DATETIME))
-glimpse(add)
-
-#Add year to "year" column and PITTAG_RECAP = "Y" column
-add <- add %>%
-  mutate(year = substr(as.character(START_DATETIME), 1, 4))
-
-add["PITTAG_RECAP"] <- "Y"
-
-#bind rows by column from antenna data to fms.pit data
-fms.pit.ant <- bind_rows(fms, add)
-
-#consolidate similar gear types ########
-gear <- read.csv("./data/gear_types.csv", stringsAsFactors = FALSE)
-
-gear <- gear %>%
-  select(-n)
-
-fms.pit.ant <- fms.pit.ant %>%
-  left_join(gear)
-
+# a few sample size summaries for gears ###########
 #counts of gear types with gear codes simplified/consolidated
-gear.totals <- fms.pit.ant %>%
+gear.totals <- fms %>%
   group_by(gear) %>%
   summarize(n = n(),
-            percent = 100*(n/nrow(fms.pit.ant))) %>%
+            percent = 100*(n/nrow(fms))) %>%
   arrange(-n)
 gear.totals
 
@@ -791,10 +747,10 @@ gear.totals <- gear.totals %>%
 gear.totals
 
 #counts of unique fish by gear types
-gear.totals.unique <- fms.pit.ant %>%
+gear.totals.unique <- fms %>%
   group_by(gear) %>%
   summarize(n = length(unique(PITTAG)),
-            percent = 100*(n/nrow(fms.pit.ant))) %>%
+            percent = 100*(n/nrow(fms))) %>%
   arrange(-n)
 gear.totals.unique
 
@@ -805,43 +761,24 @@ gear.totals.unique
 gear.totals <- bind_rows(gear.totals, gear.totals.unique)
 
 #save gear totals in output
-write.csv(gear.totals, "./output/tables/gear_totals.csv", row.names = FALSE)
+#write.csv(gear.totals, "./output/tables/gear_totals.csv", row.names = FALSE)
 
-fms.pit.ant %>% #see n for each antenna type
-  filter(gear %in% c("antenna_temporary", "antenna_permanent")) %>%
-  group_by(gear, GEAR_CODE, SAMPLE_TYPE) %>%
-  summarize(n = n(),
-            unique.fish = length(unique(PITTAG)),
-            ratio = unique.fish/n) %>%
-  arrange(-ratio)
+#simplify disposition codes to alive or dead #######
+unique(fms$DISPOSITION_CODE)
 
-#subset to only gear types to use #######
-#these gear codes will keep 97% of fish captures
-#removing things like trammels, angling, seines will simplify calculation of
-#effort, but have little impact on sample size
-fms.pit.ant <- fms.pit.ant %>%
-  filter(gear %in% c("boat_electrofishing", "baited_hoop_net",
-                     "unbaited_hoop_net", "antenna_temporary"))
-
-#simplify disposition codes to alive or dead
-unique(fms.pit.ant$DISPOSITION_CODE)
-
-fms.pit.ant <- fms.pit.ant %>%
+fms <- fms %>%
   mutate(disposition = case_when(
     #NAs are either antenna records or missing data, reasonable to presume alive
     DISPOSITION_CODE %in% c("RA", NA) ~ "alive",
     #These codes mean fish was removed from population
     DISPOSITION_CODE %in% c("DR", "DC", "DP", "TA") ~"dead"))
 
-unique(fms.pit.ant$TRIP_ID)
-
-#remove trailing letters in trip codes
-#some trips have multiple codes (GC20190722, GC20190722T) because antenna data
-#was entered separately. consolidate to one code.
-fms.pit.ant <- fms.pit.ant %>%
-  mutate(TRIP_ID = str_remove(TRIP_ID, "[[:alpha:]]$"))
-
 #save new csv file with all gear types  #######
-write.csv(fms.pit.ant, "./data/all_PIT_tagged_flannelmouth.csv",
+write.csv(fms, "./data/all_PIT_tagged_flannelmouth.csv",
           row.names = FALSE)
 
+write.csv(n.samples, "./data/effort_by_trip_reach.csv",
+          row.names = FALSE)
+
+write.csv(n.samples.trip, "./data/effort_by_trip.csv",
+          row.names = FALSE)
