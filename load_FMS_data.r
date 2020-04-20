@@ -579,6 +579,8 @@ fms <- fms %>%
                           TRUE ~ gear)) %>%
   mutate(day = strftime(START_DATETIME, format = "%j")) %>%
   filter(gear %in% gear.types.keep) %>% #subset to gear types to analyze
+  #remove AGFD lower 1200 LCR samplign - enough LCR data from FWS
+  filter(SAMPLE_TYPE %in% c(94, 95) == FALSE) %>%
   filter((day >= start.spring & day <= end.spring) | #spring or fall only
            (day >= start.fall & day <= end.fall)) %>%
   #add variable for season
@@ -605,11 +607,17 @@ samples <- samples %>%
                             SAMPLE_TYPE %in% c(127, 141) ~ "antenna_permanent",
                           TRUE ~ gear)) %>%
   filter(gear %in% gear.types.keep) %>% #filter by gear type
+  #remove AGFD lower 1200 LCR samplign - enough LCR data from FWS
+  filter(SAMPLE_TYPE %in% c(94, 95) == FALSE) %>%
   filter((day >= start.spring & day <= end.spring) | #spring or fall only
            (day >= start.fall & day <= end.fall)) %>%
   #add variable for season
   mutate(season = case_when(day >= start.spring & day <= end.spring ~ "spring",
-                            day >= start.fall & day <= end.fall ~ "fall"))
+                            day >= start.fall & day <= end.fall ~ "fall")) %>%
+  #NSE EL sites were 50m, not 250, need to be counted as 1/5 of a sample
+  mutate(n.samples = case_when((SAMPLE_TYPE == 129 & GEAR_CODE == "EL") ~ 0.2,
+   #other samples are 1 unit of effort (250m of EL, 1 hoop or antenna overnight)
+                               TRUE ~ 1))
 
 #for each trip, bin into 5 miles (counting from dam) ######
 #define length of reach to bin samples in to
@@ -646,8 +654,6 @@ antenna <- antenna %>%#calculate km from mile, or insert NA if tributary
          reach_end = reach_no*reach.km)
 # calculate days of effort for antennas ########
 #trip id, reach_start, year + season
-
-#MAY NEED TO ADJUST NAMES TO MERGE TO MAIN EFFORT TABLE
 #antenna effort by trip, season, 8km reach, year
 antenna.effort <- antenna %>%
   filter(gear == "antenna_temporary") %>%
@@ -684,13 +690,13 @@ rm(antenna) #no longer need separate file, now it is on fish data
 
 #calculate effort per 5 miles per time block for each gear type #######
 
-samples <- samples %>%
+samples <- samples %>% #add year column
   mutate(year = as.numeric(substr(START_DATETIME, 1, 4)))
 
 #effort by trip, year, season, 8km reach
 n.samples <- samples %>%
-  group_by(TRIP_ID, gear, season, year, reach_start, RIVER_CODE) %>%
-  summarize(n = n())
+  group_by(TRIP_ID,  gear, season, year, reach_start, RIVER_CODE) %>%
+  summarize(n = sum(n.samples))
 
 n.samples <- n.samples %>%
   pivot_wider(names_from = gear, values_from = n,
@@ -699,7 +705,7 @@ n.samples <- n.samples %>%
 #effort by trip, year, season (no reach grouping)
 n.samples.trip <- samples %>%
   group_by(TRIP_ID, gear, season, year, RIVER_CODE) %>%
-  summarize(n = n())
+  summarize(n = sum(n.samples))
 
 n.samples.trip <- n.samples.trip %>%
   pivot_wider(names_from = gear, values_from = n,
@@ -707,10 +713,12 @@ n.samples.trip <- n.samples.trip %>%
 
 #add on calculated anntenna effort if antenna effort is missing
 n.samples <- n.samples %>%
-  left_join(antenna.effort)
+  left_join(antenna.effort) %>%
+  mutate(antenna.effort.calc = as.numeric(antenna.effort.calc))
 
 n.samples.trip <- n.samples.trip %>%
-  left_join(antenna.effort.trip)
+  left_join(antenna.effort.trip) %>%
+  mutate(antenna.effort.calc = as.numeric(antenna.effort.calc))
 
 #check that there is no overlap (number in antenna temporary or n, not both)
 #move n (calculated antenna effort) into antenna temporary colulmn
@@ -782,3 +790,4 @@ write.csv(n.samples, "./data/effort_by_trip_reach.csv",
 
 write.csv(n.samples.trip, "./data/effort_by_trip.csv",
           row.names = FALSE)
+
