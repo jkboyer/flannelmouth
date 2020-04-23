@@ -1,0 +1,34 @@
+SAMPLE_TYPE,agency,river,description
+1,,,
+94,AGFD,LCR,AGFD LCR monitoring
+95,AGFD,LCR,AGFD LCR monitoring
+96,AGFD,COR,AGFD monitoring
+97,AGFD,COR,AGFD monitoring
+98,multiple,COR,mechanical removal
+99,AGFD,COR,AGFD monitoring
+101,AGFD,LCR,AGFD LCR monitoring
+102,USFWS,LCR,USFWS LCR monitoring
+104,USFWS,LCR,USFWS LCR monitoring
+105,GCMRC,COR,GCMRC Lees Ferry
+107,GCMRC,COR,mechanical removal
+108,GCMRC,COR,mechanical removal
+109,GCMRC,COR,mechanical removal
+111,AGFD,COR,AGFD monitoring
+113,USFWS,COR,USFWS hoop nets
+114,USFWS,LCR,USFWS LCR monitoring
+115,AGFD,COR,AGFD monitoring
+117,GCMRC,COR,seining trip
+118,GCY,COR,GCY seining
+120,AGFD,COR,AGFD monitoring
+121,GCY,COR,GCY trip
+124,NPS,COR,NPS Shinumo trip
+128,USFWS,COR,aggregation
+129,GCMRC,COR,NSE
+130,GCMRC,COR,GCMRC mainstem supplemental
+132,GCMRC,LCR,2012-13 hoop nets near PIT antenna
+133,GCMRC,LCR,HBC early life history
+137,GCMRC,COR,natal origins
+138,GCMRC,COR,JCM
+139,GCMRC,COR,JCM-LCR
+140,GCMRC,COR,TRGD
+NA,NA,NA,NA 

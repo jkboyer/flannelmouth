@@ -1,5 +1,7 @@
+
 #loads data
-#1. all PIT tagged FMS in GCMRC database for mark-recapture analysis
+#1. all PIT tagged FMS records in GCMRC database for mark-recapture analysis
+#   and NPS FMS records that are not in big boy
 #2. all flannelmouth to look at size structure, maturity, etc.
 #Authors: Jan Boyer, AGFD, jboyer@azgfd.gov
 #         Laura Tennant, USGS, ltennant@usgs.gov
@@ -11,28 +13,44 @@
 #      of Rstudio only run 64-bit R) to use RODBC to connect to access database
 #      in Rstudio Tools/Global Options/General, click change button by R version
 
-#Things we still need to deal with
-# what is END_DATETIME from antenna, could it be dropped?
-# consolidate gear codes (i.e., HB = MHB)
-# subset to only data that will be used for analysis (maybe in another script)
-
-
+#setup: load packages, data, define subsetting criteria ######
 library(RODBC) #database interface
 library(tidyverse)
 library(lubridate) #need this for date transformation
 
 theme_set(theme_minimal()) #override ugly default ggplot theme
 
-#load data ######
+#load some metric/english conversion fuctions I wrote
+source("./functions/conversion_functions.r")
 
-# define database file name as most recent version here
-db.GCMRC <- "FISH_SAMPLE_SPECIMEN_HISTORY_20200212_1711.mdb"
+#define cutoffs to use for subsetting data
+start.year <- 2004
+#season cutoffs - %j is day of year and will be same day regardless of year
+start.spring <- strftime(as.POSIXct("2020-03-01"), format = "%j")
+end.spring <- strftime(as.POSIXct("2020-06-20"), format = "%j")
+start.fall <- strftime(as.POSIXct("2020-08-01"), format = "%j")
+end.fall <- strftime(as.POSIXct("2020-10-31"), format = "%j")
+
+#gear types to keep
+#these are aggregated (e.g. baited hoop net includes HB, MHB, and more, see
+#                      gear_types.csv for grouping)
+gear.types.keep <- c("boat_electrofishing", "baited_hoop_net",
+                     "unbaited_hoop_net", "antenna_temporary")
+
+#length of reach used to bin data for cauchy distribution
+reach.km = 8
+
+# load data from big boy database ######
+# database file name: UPDATE to most recent version here
+db.GCMRC <- "FISH_SAMPLE_SPECIMEN_HISTORY_20200415_2011.mdb"
 
 # specify file location of GCMRC database
 #Laura's working file path
 gcmrc.file.path <- "M:/Lovich/Laura Tennant work folder/GCMRC/FMS_mark_recap/"
-#Jan's working file path
-gcmrc.file.path <- "\\\\flag-server/Office/GCMRC_master_database/"
+#Jan's work file path
+#gcmrc.file.path <- "\\\\flag-server/Office/GCMRC_master_database/"
+#Jan's coronavirus work from home filepath
+gcmrc.file.path <- "C:/Users/jboyer/Documents/big_boy/"
 
 #connect to database
 db <- odbcConnectAccess(paste(gcmrc.file.path, db.GCMRC, sep = ""))
@@ -62,18 +80,17 @@ glimpse(fms) #overview of dataframe imported from access database
 # query desired antenna data from specimen table
 # this will take a while to run
 antenna <- sqlQuery(db,
-                    paste("SELECT SAMPLE_TYPE, FISH_T_SAMPLE.TRIP_ID, GEAR_CODE,",
+                    paste("SELECT FISH_T_SAMPLE.SAMPLE_ID,",
+                          "SAMPLE_TYPE, FISH_T_SAMPLE.TRIP_ID, GEAR_CODE,",
                           "RIVER_CODE, FISH_T_SAMPLE.START_DATETIME,",
                           "END_DATETIME, START_RKM, START_RM,",
                           "PITTAG",
                           "FROM SAMPLE_SPECIMEN_ALL",
                           "WHERE GEAR_CODE = 'CUPS_BAITED'
-                          OR GEAR_CODE = 'CUPS'
                           OR GEAR_CODE = 'BK'
                           OR GEAR_CODE = 'BK_BAITED'
                           OR GEAR_CODE = 'BK_UNBAITED'
                           OR GEAR_CODE = 'FS_B_24_HR'
-                          OR GEAR_CODE = 'HPR'
                           OR GEAR_CODE = 'MUX2009'
                           OR GEAR_CODE = 'MUX2011'
                           OR GEAR_CODE = 'MUX2012'
@@ -83,24 +100,52 @@ antenna <- sqlQuery(db,
 
 glimpse(antenna) #overview of dataframe imported from access database
 
+#get sample data too - will need to calculate effort days for each gear
+sqlColumns(db, "FISH_T_SAMPLE")$COLUMN_NAME
+
+#see what trips we need effort data for
+trip.ids <- unique(c(unique(fms$TRIP_ID), unique(antenna$TRIP_ID)))
+trip.ids
+#reformat trip ids as a string with quotes and commas to put in SQL query
+trip.list <- paste("'", as.character(trip.ids),"'",collapse=", ",sep="")
+
+#query all sample data from those trips from big boy
+samples <- sqlQuery(db,
+                    paste("SELECT TRIP_ID, SAMPLE_TYPE, GEAR_CODE, RIVER_CODE,",
+                          "START_RM, END_RM,",
+                          "START_DATETIME, END_DATETIME,",
+                          "EF_TOTAL_SECONDS, SAMPLE_ID",
+                          "FROM FISH_T_SAMPLE",
+                          "WHERE TRIP_ID IN (", trip.list, ")"),
+                    stringsAsFactors = FALSE, #import strings as character, not factor
+                    na.strings = c(NA, "", " ", 999, -999, "#N/A")) #these values are all NA
+
 odbcClose(db) #close database connection
 
-# load NPS flannelmouth recapture data #######
-# mostly from bright angel and shinumo trips
+# load additional data from NPS and FWS ######
+# capture data mostly from bright angel and shinumo (mainstem sampling) trips
 
 #load NPS flannelmouth data
-nps.filepath <- "\\\\FLAG-SERVER/Office/Grand Canyon Downstream/Databases/NPS_data/"
+#nps.filepath <- "\\\\FLAG-SERVER/Office/Grand Canyon Downstream/Databases/NPS_data/"
+nps.filepath <- "C:/Users/jboyer/Documents/data/"
 nps.filename <- "NPS_FMS_data_captures_forJan17March2020.csv"
 
 #load NPS flannelmouth PIT tag data
 nps <- read.csv(paste0(nps.filepath, nps.filename), stringsAsFactors = FALSE)
 glimpse(nps)
 
+#nps.sample data
+nps.sample <- read.csv("./data/NPS_shinumo_nets_sample.csv",
+                       stringsAsFactors = FALSE)
+
+
 nps <- nps %>% #format dates
   mutate(START_DATE = as.Date(START_DATE, format = "%m/%d/%Y"),
          #convert to start datetime to match big boy data
-         START_DATETIME = as.POSIXct(paste(START_DATE, "12:00:00"))) %>%
-  select(c(colnames(nps)[colnames(nps) %in% colnames(fms)], STATION_ID)) %>%
+         START_DATETIME = as.POSIXct(paste(START_DATE, "12:00:00")))
+
+nps <- nps %>%
+  select(c(colnames(nps)[colnames(nps) %in% colnames(fms)])) %>%
   filter(PITTAG != "") #remove fish that are not PIT tagged
 glimpse(nps)
 
@@ -142,38 +187,190 @@ fms <- fms %>%
 
 rm(nps) #no longer needed, remove
 
-# format and subset data ######
+nps.sample <- nps.sample %>%
+  mutate(SAMPLE_ID = paste0("NPS", ACCESS_SAMPLE_ID)) %>%
+  select(-c(ACCESS_SAMPLE_ID, DATASHEET_SAMPLE_ID)) %>%
+  #the dates and times are formatted wrong! fix them. datetimes are frustrating!
+  mutate(START_DATE = as.Date(START_DATE, format = "%m/%d/%Y"),
+         END_DATE = as.Date(END_DATE, format = "%m/%d/%Y"),
+         START_DATETIME = as.POSIXct(paste0(as.character(START_DATE), " ",
+                                 START_TIME, ":00")),
+         END_DATETIME = as.POSIXct(paste0(as.character(END_DATE), " ",
+                                 END_TIME, ":00")),
+         #NPS data did not have river mile, but they sample between
+         #bass rapid and shinumo, so this is halfway point
+         START_RM = 108.9,
+         RIVER_CODE = "COR") %>%
+  select(-c(START_DATE, START_TIME, END_DATE, END_TIME))
+colnames(nps.sample) %in% colnames(samples)
+
+samples <- samples %>%
+  mutate(SAMPLE_ID = as.character(SAMPLE_ID)) %>%
+  bind_rows(nps.sample)
+
+#NPS data is from BAC antenna, and shinumo area mainstem hoopnetting trips
+#FWS data is submersible antenna data, will eventually be in big boy, but is
+#not yet in big boy
+
+#NPS antenna data
+#Adding NPS antenna BAC data in (Laura's file path)
+NPS.ant <- read.csv("C:/Users/ltennant/Desktop/FMS_mark_recap/FMS_NPScaptures_on_BAC_antenna.csv")
+
+#Jan's filepaths
+NPSdataantenna <- "FMS_NPScaptures_on_BAC_antenna.csv"
+NPS.ant <- read.csv(paste0(nps.filepath, NPSdataantenna),
+                    stringsAsFactors = FALSE)
+
+NPS.ant <- NPS.ant %>% #format date as date
+  mutate(detected_at = as.Date(detected_at, format = "%m/%d/%Y"))
+
+#subset to only antenna columns (others were initial capture data joined on)
+NPS.ant <- NPS.ant %>%
+  transmute(PITTAG = tag,
+            START_DATETIME = as.POSIXct(detected_at))
+
+#Add year to "year" column, PITTAG_RECAP = "Y" column, GEAR_CODE = "NPS_BIOMARK_ANTENNA"
+#Brian Healy said the antenna detections of FMS are ONLY at the the BAC antenna
+#which is about 200 m upstream of the Colorado River in BAC, just below the lower campground bridge.
+#I am reassigning RIVER_CODE = "BAC" and as a mainstem antenna (START_RM = 88.3).
+NPS.ant <- NPS.ant %>%
+  mutate(year = as.numeric(substr(as.character(START_DATETIME), 1, 4)))
+
+#add columns that big boy antenna data has and NPS data needs
+#these are the same for all NPS antenna data
+NPS.ant["PITTAG_RECAP"] <- "Y"
+NPS.ant["GEAR_CODE"] <- "NPS_BIOMARK_ANTENNA"
+NPS.ant["RIVER_CODE"] <- "COR"
+NPS.ant["START_RM"] <- 88.3
+NPS.ant["TRIP_ID"] <- "BACantenna"
+
+#Clean up tags so there is only one unique PIT tag detection/day instead of multiples.
+NPS.ant <- NPS.ant %>%
+  arrange(PITTAG, START_DATETIME) %>% #order by pittag and date
+  distinct() #keep only unique rows
+#since only PITTAG and START_DATETIME vary in this dataset, distinct() will subset
+#our data to one record per fish per day
+#SIDE NOTE: we'd need to modify code if we had datetimes instead of dates
+
+#join NPS antenna data to big boy antenna data
+antenna <- antenna %>%
+  bind_rows(NPS.ant)
+
+rm(NPS.ant) #no longer needed, remove
+
+#FWS antenna data
+#NOTE ABOUT THIS DATASET: FWS cleans up the data already so there's only one unique PITTAG/day
+#so we don't need to do that in our code. There are two antenna types: submersible and
+#shore-based. Shore Based antennas were assigned to SAMPLE_TYPE 127 and submersible antennas
+#to SAMPLE_TYPE 128.GEAR_CODE is assigned as BK_BAITED or BK_UNBAITED. BK_UNBAITED
+#is true when SAMPLE_TYPE = 128 (when FWS forgot to bait antennas; n = 12 cases) OR
+#is a permanent shore-based antenna.
+
+#Adding FWS antenna data in (Laura's file path)
+#FWS.ant <- read.csv("C:/Users/ltennant/Desktop/FMS_mark_recap/Antennas_COR_USFWS_update.csv",
+ #                   stringsAsFactors = FALSE,
+ #                   header = TRUE)
+FWS.ant <- read.csv("./data/Antennas_COR_USFWS_update.csv",
+                   stringsAsFactors = FALSE, header = TRUE)
+#filter FMS only
+#FWS.ant <- FWS.ant %>%
+ # filter(Species == "FMS")
+
+#format date and time
+FWS.ant$newSTART_DATETIME <- gsub("/","-", FWS.ant$Datetime)
+FWS.ant$formattedSTART_DATETIME <- parse_date_time(FWS.ant$newSTART_DATETIME, orders="mdy_H!M!")
+
+#rename columns
+colnames(FWS.ant)[4] <- "PITTAG"
+colnames(FWS.ant)[6] <- "RIVER_CODE"
+colnames(FWS.ant)[7] <- "START_RM"
+colnames(FWS.ant)[10] <- "Antenna_ID"
+colnames(FWS.ant)[16] <- "START_DATETIME"
+
+#add columns (year and PITTAG_RECAP added in later code)
+FWS.ant <- FWS.ant %>%
+  mutate(year = substr(as.character(START_DATETIME), 1, 4))
+FWS.ant["PITTAG_RECAP"] <- "Y"
+FWS.ant["SAMPLE_TYPE"] <- "128"
+FWS.ant["GEAR_CODE"] <- "BK_BAITED"
+
+#format data to be numeric
+FWS.ant$START_RM <- as.numeric(FWS.ant$START_RM)
+FWS.ant$year <- as.numeric(FWS.ant$year)
+FWS.ant$SAMPLE_TYPE <- as.numeric(FWS.ant$SAMPLE_TYPE)
+
+#Havasu needs a START_RM
+FWS.ant <- FWS.ant %>%
+  mutate(START_RM = case_when(RIVER_CODE == "HAV" ~ 157.3,
+                              TRUE ~ START_RM))
+#two types of antennas: shore-based antennas need to be different sample type
+FWS.ant <- FWS.ant %>%
+  mutate(SAMPLE_TYPE = case_when(Antenna.Type == "Shore Based" ~ 127,
+                                 TRUE ~ SAMPLE_TYPE))
+
+#Designate gear type based on if baited antennas or not
+FWS.ant <- FWS.ant %>%
+  mutate(GEAR_CODE = case_when(Baited == "N" ~ "BK_UNBAITED",
+                               TRUE ~ GEAR_CODE))
+
+#remove columns
+FWS.ant <- FWS.ant %>%
+  select (-c(Date, Time, Datetime, Species, Side,
+             X, X.1, newSTART_DATETIME, Baited, Antenna.Type))
+
+#DOES NOT HAVE SAMPLE_id
+#create one from trip id+ antenna ID
+FWS.ant <- FWS.ant %>%
+  mutate(SAMPLE_ID = paste(TRIP_ID, Antenna_ID, START_RM, sep = "_"))
+
+#how many antennas per trip - do numbers make sense?
+FWS.ant %>%
+  group_by(TRIP_ID, SAMPLE_TYPE) %>%
+  summarise(n = n())
+
+#checking that SAMPLE_TYPE and GEAR_CODE parsed correctly
+FWS.ant %>%
+  group_by(GEAR_CODE, SAMPLE_TYPE) %>%
+  summarize(n = n()) %>%
+  arrange(-n)
+FWS.ant <- FWS.ant %>%
+  mutate(year = as.numeric(substr(as.character(START_DATETIME), 1, 4)))
+glimpse(FWS.ant)
+glimpse(antenna)
+#join FWS antenna data to big boy and NPS antenna data
+antenna <- antenna %>%
+  mutate(SAMPLE_ID = as.character(SAMPLE_ID)) %>%
+  bind_rows(FWS.ant)
+
+rm(FWS.ant) #no longer needed, remove
+
+# Fix various errors in data ######
 fms <- fms %>% #don't need species column since they are all flannelmouth
   select(-SPECIES_CODE) #remove column
 
-# Fix frustrating things people did, like using 999 as NA, and writing comments
-# in the PITTAG field
+# people used 999 as an NA value!?
 fms$START_RM <- ifelse(fms$START_RM == 999.00, NA, fms$START_RM)
 
 fms$TOTAL_LENGTH <- ifelse(fms$TOTAL_LENGTH <= 1, NA, fms$TOTAL_LENGTH)
 
 fms$PITTAG <- ifelse(fms$PITTAG %in% c("N", "SCANNER KAPUT"), NA, fms$PITTAG)
 
-#Incorrect PIT tag codes
-# . was omitted in some 3DD. entries
 fms <- fms %>%
-  mutate(length.tag = nchar(PITTAG),
+  mutate(length.tag = nchar(PITTAG), #count length of pit tag code
          PITTAG = toupper(PITTAG)) #capitalize pittag
 
 fms %>%
   group_by(length.tag) %>%
   summarize(n = n())
 
-#for lentgths of 13, if 4th character is not . add .
-fms %>%
-  filter(nchar(PITTAG) == 13 & str_detect(PITTAG, "\\.") == FALSE)
-
+#Incorrect PIT tag codes - FIX THEM
+# . was omitted in some 3DD.003... entries (recorded as 3dd003...)
+#for lengths of 13, if 4th character is not . add .
 fms <- fms %>%
   mutate(PITTAG = case_when(nchar(PITTAG) == 13 & #one less than normal 14
                               #and there is no . in PITTAG
                               str_detect(PITTAG, "\\.") == FALSE ~
-                              paste0(substr(PITTAG, 1, 3), ".",
-                                     substr(PITTAG, 4, 13)),
+                              paste0(substr(PITTAG,1,3), ".", substr(PITTAG,4,13)),
                             TRUE ~ PITTAG))
 
 fms <- fms %>%
@@ -185,16 +382,6 @@ fms %>%
 #tags with 11 digits are old tags
 #tags with 14 digits are new tags
 #others are errors or missing digits - low enough numbers, just drop them.
-
-#make sure all values make sense for that column, replace with NA if not
-unique(fms$SAMPLE_TYPE)
-unique(fms$TRIP_ID)
-unique(fms$GEAR_CODE)
-unique(fms$RIVER_CODE)
-unique(fms$SEX_CODE)
-unique(fms$SEX_COND_CODE)
-unique(fms$SEX_CHAR_CODE)
-unique(fms$DISPOSITION_CODE)
 
 # get year from datetime
 fms <- fms %>%
@@ -275,9 +462,19 @@ fms <- fms %>%
 #save all FMS (including not tagged) to examine size structure, maturity
 write.csv(fms, "./data/all_flannelmouth.csv", row.names = FALSE)
 
-#filter to only PIT tagged fish ######
+#subset to only PIT tagged fish captured since start year (2004) ######
 fms <- fms %>%
-  filter(!is.na(PITTAG)) #remove non tagged fish
+  filter(!is.na(PITTAG) & #remove non tagged fish
+          length.tag == 14) %>% #new tags have 14 digits
+  filter(year >= start.year) %>%
+  select(-c(SEX_CODE, SEX_COND_CODE, SEX_CHAR_CODE, length.tag,
+            PITTAG2, PITTAG2_RECAP, PITTAG3, PITTAG3_RECAP))
+
+#also subset the sample dataframe
+samples <- samples  %>%
+  filter(START_DATETIME >= as.POSIXct(paste0(start.year, "-01-01 00:0:01")))
+
+#don't need to subset antennas by year, they were not used until 2009
 
 # fish captured in mouths of tributaries - recode as mainstem fish #####
 #see what fish are in tributaries
@@ -287,59 +484,48 @@ tribs <- fms %>%
 # some fish have tributary river codes, but a mainstem river mile recorded
 # (e.g. HAV 157.26, SHI 108.6), and a low (<0.2) or no kilometer record
 # these fish can be reclassified as COR (mainstem) fish
-upstream.cutoff <- 0.2 #how many miles up a tributary we consider mainstem
+trib.cutoff <- 0.2 #how many miles up a tributary we consider mainstem
 #if start km < 0.2*1.609, or if start km is missing and start RM < 0.2,
 #reclassify as COR and assign start RM based on tributary
 
-fms <- fms %>%
-  mutate(RIVER_CODE = case_when( #reclassify as COR if:
-    #if kilometer is missing or small (i.e. close to confluence)
-    (is.na(START_RKM) | START_RKM <= upstream.cutoff*1.609) &
-    #and river mile matches the appropriate tributary confluence
-    ((RIVER_CODE == "PAR" & START_RM >= 0.70 & START_RM <= 0.80) |
-    (RIVER_CODE == "LCR" & START_RM >= 61.3 & START_RM <= 61.4) |
-    (RIVER_CODE == "CLC" & START_RM == 84.10) |
-    (RIVER_CODE == "BAC" & START_RM == 87.70) |
-    (RIVER_CODE == "SHI" & START_RM == 108.6) |
-    (RIVER_CODE == "DRC" & START_RM == 136.3) |
-    (RIVER_CODE == "KAN" & START_RM >= 143.5 & START_RM <= 146.5) |
-    (RIVER_CODE == "MAT" & START_RM == 147.8) |
-    (RIVER_CODE == "HAV" & START_RM >= 156.7 & START_RM <= 157.3)) ~ "COR",
-    #some of the paria records had confluence location in km and miles
-    RIVER_CODE == "PAR" & START_RM >= 0.70 & START_RM <= 0.80 &
-      START_RKM == 26.7 ~ "COR",
-    #otherwise, keep river code unchanged
-    TRUE ~ RIVER_CODE))
+unique(fms$RIVER_CODE) # see what river codes there are
 
 #dataframe of confluence locations in miles
-confluences <- data.frame(RIVER_CODE = sort(c(unique(fms$RIVER_CODE))),
-                          confluence_RM = c(88.3, #BAC
-                                            84.7, #CLR
-                                            NA, #COR
-                                            157.3, #HAV
-                                            144.0, #KAN
-                                            61.8, #LCR
-                                            0.9, #PAR
-                                            109.3, #SHI
-                                            246.3)) #SPE
+confluences <- data.frame(RIVER_CODE = c("COR", "HAV", "LCR", "SHI"),
+                          confluence_RM = c(NA, 157.3, 61.8,  109.3))
 
 fms <- fms %>% #join confluence miles to fms data
   left_join(confluences)
 
-# replace RM with confluence RM for fish caught near mouth of tributary
+# replace tributary code (LCR, HAV, SHI) with COR, and trib RM with confluence
+#RM for fish caught near mouth of tributary
 fms <- fms %>%
-  mutate(START_RM = case_when(
-           RIVER_CODE != "COR" & (START_RKM <= upstream.cutoff*1.609 |
-           (is.na(START_RKM) & START_RM <= upstream.cutoff)) ~ confluence_RM,
-           TRUE ~ START_RM),
-         RIVER_CODE = case_when(
-           RIVER_CODE != "COR" & (START_RKM <= upstream.cutoff*1.609 |
-           (is.na(START_RKM) & START_RM <= upstream.cutoff)) ~ "COR",
-           TRUE ~ RIVER_CODE)) %>%
+  mutate(START_RM = case_when((RIVER_CODE != "COR" &
+            #trib rkm is very close to confluence
+            (START_RKM <= trib.cutoff*1.609 |
+               (is.na(START_RKM) & START_RM <= trib.cutoff))) ~ confluence_RM,
+             TRUE ~ START_RM),
+    RIVER_CODE = case_when( #reclassify as COR for tributary captures if:
+      #rkm or rm is < 0.2 miles (close to confluence)
+      RIVER_CODE != "COR" & (START_RKM <= trib.cutoff*1.609 |
+      (is.na(START_RKM) & START_RM <= trib.cutoff) |
+      #or river mile matches the appropriate tributary confluence
+      (RIVER_CODE == "LCR" & START_RM >= 61.3 & START_RM <= 61.4) |
+      (RIVER_CODE == "SHI" & START_RM >= 108.6 & START_RM <= 109.3) |
+      (RIVER_CODE == "HAV" & START_RM >= 156.7 & START_RM <= 157.3)) ~ "COR",
+    #otherwise, keep river code unchanged
+    TRUE ~ RIVER_CODE))
+
+#all the 2017 agg trip shinumo nets were below waterfall,
+#and the Havasu nets were right in mouth - recode as COR
+fms <- fms %>%
+  mutate(START_RM = case_when(RIVER_CODE %in% c("HAV", "SHI") & TRIP_ID == "GC20170819" ~ confluence_RM,
+                              TRUE ~ START_RM),
+         RIVER_CODE = case_when(RIVER_CODE %in% c("HAV", "SHI") & TRIP_ID == "GC20170819" ~ "COR",
+                               TRUE ~ RIVER_CODE)) %>%
   select(-confluence_RM) #no longer needed, remove column
 
 #Questions still remaining:
-#   in LCR, what do negative kilometers mean?
 #   in LCR, what is mile 197?
 #   lots of zeros (especially in Shinumo). Confluence, or missing data?
 #   should I give each trib a confluence river mile so we have that location
@@ -354,81 +540,254 @@ tribs %>%
   group_by(RIVER_CODE) %>%
   summarize(n = n()) %>%
   arrange(-n)
+#now only LCR has actual tributary fish
+#makes sense, most FMS from SHI and HAV are right in mouth
 
-# subset to PIT tagged fish only for mark recap analysis #####
-fms.pit <- fms %>%
-  select(-c(SEX_CODE, SEX_COND_CODE, SEX_CHAR_CODE,
-            PITTAG2, PITTAG2_RECAP, PITTAG3, PITTAG3_RECAP))
+rm(confluences, fms.lengths, tribs, lm.FL.to.TL, lm.TL.to.FL) # no longer needed, remove
 
-rm(confluences, fms.lengths, tribs) # no longer needed, remove
+# calculate sampling effort ############
 
-#Making sure all antenna types are present and pulled from Big Boy
-unique(antenna$GEAR_CODE)
+#data has T on end of trip code cause was uploaded separately -
+#but is same trip, so remove T
+samples <- samples %>%
+  mutate(TRIP_ID = str_remove(TRIP_ID, "[[:upper:]]$"))
+fms <- fms %>%
+  mutate(TRIP_ID = str_remove(TRIP_ID, "[[:upper:]]$"))
+antenna <- antenna %>%
+  mutate(TRIP_ID = str_remove(TRIP_ID, "[[:upper:]]$"))
 
-#Pull out matching FMS PIT tags from antenna observations
-add <- antenna[which(antenna$PITTAG %in% fms.pit$PITTAG),]
+#check that it worked
+unique(samples$TRIP_ID)
+unique(fms$TRIP_ID)
+unique(antenna$TRIP_ID)
 
-add <- add %>% #format date as date
-  mutate(START_DATETIME = as.POSIXct(START_DATETIME),
-         END_DATETIME = as.POSIXct(END_DATETIME))
-glimpse(add)
+# perform final subsetting of data #####
+#based on year, season, and gear type (see top of script for exact criteria)
+#load gear type table
+gear <- read.csv("./data/gear_types.csv", stringsAsFactors = FALSE)
 
-#Add year to "year" column and PITTAG_RECAP = "Y" column
-add <- add %>%
-  mutate(year = substr(as.character(START_DATETIME), 1, 4))
+gear <- gear %>%
+  select(-n)
+#join generalized gear type to fish and sample data
 
-add["PITTAG_RECAP"] <- "Y"
+fms <- fms %>%
+  left_join(gear) %>%
+#one gear type is confusingly permanent and temporary antennas
+#BK_UNBAITED is permanent if 141 and 127. Otherwise temporary
+  mutate(gear = case_when(GEAR_CODE == "BK_UNBAITED" &
+                            SAMPLE_TYPE %in% c(127, 141) ~ "antenna_permanent",
+                          TRUE ~ gear)) %>%
+  mutate(day = strftime(START_DATETIME, format = "%j")) %>%
+  filter(gear %in% gear.types.keep) %>% #subset to gear types to analyze
+  #remove AGFD lower 1200 LCR samplign - enough LCR data from FWS
+  filter(SAMPLE_TYPE %in% c(94, 95) == FALSE) %>%
+  filter((day >= start.spring & day <= end.spring) | #spring or fall only
+           (day >= start.fall & day <= end.fall)) %>%
+  #add variable for season
+  mutate(season = case_when(day >= start.spring & day <= end.spring ~ "spring",
+                            day >= start.fall & day <= end.fall ~ "fall"))
 
-#bind rows by column from antenna data to fms.pit data
-fms.pit.ant <- bind_rows(fms.pit, add)
+antenna <- antenna %>%
+  left_join(gear) %>%
+  mutate(gear = case_when(GEAR_CODE == "BK_UNBAITED" &
+                            SAMPLE_TYPE %in% c(127, 141) ~ "antenna_permanent",
+                          TRUE ~ gear)) %>%
+  mutate(day = strftime(START_DATETIME, format = "%j")) %>%
+  filter(gear %in% gear.types.keep) %>% #gear type - temporary antennas only
+  filter((day >= start.spring & day <= end.spring) | #spring or fall only
+           (day >= start.fall & day <= end.fall)) %>%
+  #add variable for season
+  mutate(season = case_when(day >= start.spring & day <= end.spring ~ "spring",
+                            day >= start.fall & day <= end.fall ~ "fall"))
 
-#write new csv file with all gear types (except NPS antenna data)
-write.csv(fms.pit.ant, "./data/all_PIT_tagged_flannelmouth.csv",
+samples <- samples %>%
+  left_join(gear) %>%
+  mutate(day = strftime(START_DATETIME, format = "%j")) %>%
+  mutate(gear = case_when(GEAR_CODE == "BK_UNBAITED" &
+                            SAMPLE_TYPE %in% c(127, 141) ~ "antenna_permanent",
+                          TRUE ~ gear)) %>%
+  filter(gear %in% gear.types.keep) %>% #filter by gear type
+  #remove AGFD lower 1200 LCR samplign - enough LCR data from FWS
+  filter(SAMPLE_TYPE %in% c(94, 95) == FALSE) %>%
+  filter((day >= start.spring & day <= end.spring) | #spring or fall only
+           (day >= start.fall & day <= end.fall)) %>%
+  #add variable for season
+  mutate(season = case_when(day >= start.spring & day <= end.spring ~ "spring",
+                            day >= start.fall & day <= end.fall ~ "fall")) %>%
+  #NSE EL sites were 50m, not 250, need to be counted as 1/5 of a sample
+  mutate(n.samples = case_when((SAMPLE_TYPE == 129 & GEAR_CODE == "EL") ~ 0.2,
+   #other samples are 1 unit of effort (250m of EL, 1 hoop or antenna overnight)
+                               TRUE ~ 1))
+
+#for each trip, bin into 5 miles (counting from dam) ######
+#define length of reach to bin samples in to
+
+#convert river mile to kilometer
+samples <- samples %>% #calculate km from mile, or insert NA if tributary
+  mutate(start_rkm = case_when(RIVER_CODE == "COR" ~ MileToKmCOR(START_RM)),
+         reach = cut(start_rkm, seq(0, 504, by = reach.km)), #bin into reaches
+         reach_no = as.numeric(reach), #number each reach
+         reach_start = (reach_no - 1)*reach.km, #start point
+         reach_mid = reach_start + reach.km/2, #mid point
+         reach_end = reach_no*reach.km) %>% #end point
+  arrange(reach)
+
+samples %>% #plot to see spatial distribution of samples
+  ggplot(aes(x = reach_mid)) +
+  geom_histogram()
+#yep, theres a lot of sampling at the LCR
+
+fms <- fms %>%#calculate km from mile, or insert NA if tributary
+  mutate(start_rkm = case_when(RIVER_CODE == "COR" ~ MileToKmCOR(START_RM)),
+         reach = cut(start_rkm, seq(0, 504, by = reach.km)), #bin into reaches
+         reach_no = as.numeric(reach), #number each reach
+         reach_start = (reach_no - 1)*reach.km, #start point
+         reach_mid = reach_start + reach.km/2, #mid point
+         reach_end = reach_no*reach.km)
+
+antenna <- antenna %>%#calculate km from mile, or insert NA if tributary
+  mutate(start_rkm = case_when(RIVER_CODE == "COR" ~ MileToKmCOR(START_RM)),
+         reach = cut(start_rkm, seq(0, 504, by = reach.km)), #bin into reaches
+         reach_no = as.numeric(reach), #number each reach
+         reach_start = (reach_no - 1)*reach.km, #start point
+         reach_mid = reach_start + reach.km/2, #mid point
+         reach_end = reach_no*reach.km)
+# calculate days of effort for antennas ########
+#trip id, reach_start, year + season
+#antenna effort by trip, season, 8km reach, year
+antenna.effort <- antenna %>%
+  filter(gear == "antenna_temporary") %>%
+  group_by(TRIP_ID, reach_start, year, season) %>%
+  summarize(antenna.effort.calc = length(unique(SAMPLE_ID)))
+
+#antenna effort by trip, season, year (NOT split by reach)
+antenna.effort.trip <- antenna %>%
+  filter(gear == "antenna_temporary") %>%
+  group_by(TRIP_ID, year, season) %>%
+  summarize(antenna.effort.calc = length(unique(SAMPLE_ID)))
+
+# finalize subsetting ########
+#antennas - only keep fish also in fms dataframe
+#this will remove other species, FMS tagged before 2004 or in wrong season, etc.
+antenna <- antenna %>%
+  filter(PITTAG %in% unique(fms$PITTAG)) #only keep tags that match tag in fms
+
+#samples - only keep data from trips we are using data from
+#this will remove trips in wrong season
+samples <- samples %>%
+#keep only trips that we are using FMS data from
+  filter(TRIP_ID %in% c(unique(fms$TRIP_ID), unique(antenna$TRIP_ID)))
+
+#merge antenna data onto fms data ########
+fms <- fms %>%
+  mutate(year = as.numeric(year)) %>%
+  bind_rows(antenna)
+
+rm(antenna) #no longer need separate file, now it is on fish data
+
+#antennas calculated from sample and antennas calculated from fms
+#ccheck match, replace 0s from sample with fms
+
+#calculate effort per 5 miles per time block for each gear type #######
+
+samples <- samples %>% #add year column
+  mutate(year = as.numeric(substr(START_DATETIME, 1, 4)))
+
+#effort by trip, year, season, 8km reach
+n.samples <- samples %>%
+  group_by(TRIP_ID,  gear, season, year, reach_start, RIVER_CODE) %>%
+  summarize(n = sum(n.samples))
+
+n.samples <- n.samples %>%
+  pivot_wider(names_from = gear, values_from = n,
+              values_fill = list(n = 0)) #fill with zero if is NA
+
+#effort by trip, year, season (no reach grouping)
+n.samples.trip <- samples %>%
+  group_by(TRIP_ID, gear, season, year, RIVER_CODE) %>%
+  summarize(n = sum(n.samples))
+
+n.samples.trip <- n.samples.trip %>%
+  pivot_wider(names_from = gear, values_from = n,
+              values_fill = list(n = 0)) #fill with zero if is NA
+
+#add on calculated anntenna effort if antenna effort is missing
+n.samples <- n.samples %>%
+  left_join(antenna.effort) %>%
+  mutate(antenna.effort.calc = as.numeric(antenna.effort.calc))
+
+n.samples.trip <- n.samples.trip %>%
+  left_join(antenna.effort.trip) %>%
+  mutate(antenna.effort.calc = as.numeric(antenna.effort.calc))
+
+#check that there is no overlap (number in antenna temporary or n, not both)
+#move n (calculated antenna effort) into antenna temporary colulmn
+n.samples <- n.samples %>%
+  mutate(antenna_temporary = case_when( #if no value for antenna temporary and
+    #there is a calculated value, replace with calculated value
+    antenna_temporary == 0 & !is.na(antenna.effort.calc) ~ antenna.effort.calc,
+    #otherwise, keep antenna_temporary effort count
+    TRUE ~ antenna_temporary)) %>%
+  select(-antenna.effort.calc) #no longer needed, remove
+
+n.samples.trip <- n.samples.trip %>%
+  mutate(antenna_temporary = case_when( #if no value for antenna temporary and
+    #there is a calculated value, replace with calculated value
+    antenna_temporary == 0 & !is.na(antenna.effort.calc) ~ antenna.effort.calc,
+    #otherwise, keep antenna_temporary effort count
+    TRUE ~ antenna_temporary)) %>%
+  select(-antenna.effort.calc) #no longer needed, remove
+
+#when done, check that every fish trip/location/time has a corresponding
+#sample/effort record
+
+# a few sample size summaries for gears ###########
+#counts of gear types with gear codes simplified/consolidated
+gear.totals <- fms %>%
+  group_by(gear) %>%
+  summarize(n = n(),
+            percent = 100*(n/nrow(fms))) %>%
+  arrange(-n)
+gear.totals
+
+gear.totals <- gear.totals %>%
+  mutate(cumulative.percent = 100*(cumsum(n)/sum(n)))
+gear.totals
+
+#counts of unique fish by gear types
+gear.totals.unique <- fms %>%
+  group_by(gear) %>%
+  summarize(n = length(unique(PITTAG)),
+            percent = 100*(n/nrow(fms))) %>%
+  arrange(-n)
+gear.totals.unique
+
+gear.totals.unique <- gear.totals.unique %>%
+  mutate(cumulative.percent = 100*(cumsum(n)/sum(n)))
+gear.totals.unique
+
+gear.totals <- bind_rows(gear.totals, gear.totals.unique)
+
+#save gear totals in output
+#write.csv(gear.totals, "./output/tables/gear_totals.csv", row.names = FALSE)
+
+#simplify disposition codes to alive or dead #######
+unique(fms$DISPOSITION_CODE)
+
+fms <- fms %>%
+  mutate(disposition = case_when(
+    #NAs are either antenna records or missing data, reasonable to presume alive
+    DISPOSITION_CODE %in% c("RA", NA) ~ "alive",
+    #These codes mean fish was removed from population
+    DISPOSITION_CODE %in% c("DR", "DC", "DP", "TA") ~"dead"))
+
+#save new csv file with all gear types  #######
+write.csv(fms, "./data/all_PIT_tagged_flannelmouth.csv",
           row.names = FALSE)
 
-#Adding NPS antenna BAC data in (Laura's file path)
-NPS.ant <- read.csv("C:/Users/ltennant/Desktop/FMS_mark_recap/FMS_NPScaptures_on_BAC_antenna.csv")
-fms.pit <- read.csv("./data/all_PIT_tagged_flannelmouth.csv")
-
-#jan's filepaths
-NPSdataantenna <- "FMS_NPScaptures_on_BAC_antenna.csv"
-NPS.ant <- read.csv(paste0(nps.filepath, NPSdataantenna),
-                    stringsAsFactors = FALSE)
-
-NPS.ant <- NPS.ant %>% #format date as date
-  mutate(detected_at = as.Date(detected_at, format = "%m/%d/%Y"))
-
-#Remove unneccessary columns (TOTAL_LENGTH and WEIGHT will be replaced with "NA"
-#when this file is merged with the FMS tag file)
-NPS.ant <- NPS.ant %>%
-  transmute(PITTAG = tag,
-            START_DATETIME = detected_at)
-
-#Add year to "year" column, PITTAG_RECAP = "Y" column, GEAR_CODE = "NPS_BIOMARK_ANTENNA"
-#Brian Healy said the antenna detections of FMS are ONLY at the the BAC antenna
-#which is about 200 m upstream of the Colorado River in BAC, just below the lower campground bridge.
-#I am reassigning RIVER_CODE = "BAC" and as a mainstem antenna (START_RM = 88.3).
-NPS.ant <- NPS.ant %>%
-  mutate(year = substr(as.character(START_DATETIME), 1, 4))
-
-NPS.ant["PITTAG_RECAP"] <- "Y"
-NPS.ant["GEAR_CODE"] <- "NPS_BIOMARK_ANTENNA"
-NPS.ant["RIVER_CODE"] <- "COR"
-NPS.ant["START_RM"] <- "88.3"
-
-#LAURA - this is the code that subsets to one record per fish per day
-#Clean up tags so there is only one unique PIT tag detection/day instead of multiples.
-NPS.ant <- NPS.ant %>%
-  arrange(PITTAG, START_DATETIME) %>% #order by pittag and date
-  distinct() #keep only unique rows
- #since only PITTAG and START_DATETIME vary in this dataset, distinct() will subset
- #our data to one record per fish per day
- #SIDE NOTE: we'd need to modify code if we had datetimes instead of dates
-
-library (plyr) #Needed plyr to rbind, bind_rows was having a problem with the Date
-#bind rows by column from antenna data to fms.pit data
-NPS.pit.ant <- rbind.fill(fms.pit, NPS.ant)
-
-#write new csv file with all gear types to FMS master csv
-write.csv(NPS.pit.ant, "./data/all_PIT_tagged_flannelmouth.csv",
+write.csv(n.samples, "./data/effort_by_trip_reach.csv",
           row.names = FALSE)
+
+write.csv(n.samples.trip, "./data/effort_by_trip.csv",
+          row.names = FALSE)
+
