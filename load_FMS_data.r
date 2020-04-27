@@ -40,6 +40,9 @@ gear.types.keep <- c("boat_electrofishing", "baited_hoop_net",
 #length of reach used to bin data for cauchy distribution
 reach.km = 8
 
+#size break - dividing point between adult and subadult (in mm)
+size.break <- 325
+
 # load data from big boy database ######
 # database file name: UPDATE to most recent version here
 db.GCMRC <- "FISH_SAMPLE_SPECIMEN_HISTORY_20200415_2011.mdb"
@@ -350,7 +353,7 @@ fms <- fms %>% #don't need species column since they are all flannelmouth
 
 # people used 999 as an NA value!?
 fms$START_RM <- ifelse(fms$START_RM == 999.00, NA, fms$START_RM)
-
+samples$START_RM <- ifelse(samples$START_RM == 999.00, NA, samples$START_RM)
 fms$TOTAL_LENGTH <- ifelse(fms$TOTAL_LENGTH <= 1, NA, fms$TOTAL_LENGTH)
 
 fms$PITTAG <- ifelse(fms$PITTAG %in% c("N", "SCANNER KAPUT"), NA, fms$PITTAG)
@@ -621,37 +624,68 @@ samples <- samples %>%
 
 #for each trip, bin into 5 miles (counting from dam) ######
 #define length of reach to bin samples in to
+max.RM <- max(MileToKmCOR(samples$START_RM[samples$RIVER_CODE == "COR"]), na.rm = TRUE)
 
 #convert river mile to kilometer
 samples <- samples %>% #calculate km from mile, or insert NA if tributary
-  mutate(start_rkm = case_when(RIVER_CODE == "COR" ~ MileToKmCOR(START_RM)),
-         reach = cut(start_rkm, seq(0, 504, by = reach.km)), #bin into reaches
-         reach_no = as.numeric(reach), #number each reach
-         reach_start = (reach_no - 1)*reach.km, #start point
-         reach_mid = reach_start + reach.km/2, #mid point
-         reach_end = reach_no*reach.km) %>% #end point
-  arrange(reach)
+  mutate(start_rkm = case_when(RIVER_CODE == "COR" ~ MileToKmCOR(START_RM),
+                               #LCR will be next number after max Colorado
+                               RIVER_CODE == "LCR" ~ max.RM + 8),
+         #for COR, split into 8 km reaches
+         #for LCR, reach = (max COR reach) + 1
+         reach = cut(start_rkm, seq(0, 512, by = reach.km)),
+         reach_no = as.numeric(reach), #number for each reach
+         #get start point - a numeric field is useful for graphing
+         #for now, LCR has confluence rkm - not sure if this is best approach
+         reach_start = case_when(RIVER_CODE == "COR" ~ (reach_no - 1)*reach.km,
+                                 RIVER_CODE == "LCR" ~ MileToKmCOR(61.4))) %>%
+arrange(reach)
+
+ #remove the rkm 512s for LCR - not actual Rkm, just what I used to create
+  #reach numbering without messing up factors
+samples$start_rkm <- ifelse(samples$RIVER_CODE == "LCR", NA, samples$start_rkm)
 
 samples %>% #plot to see spatial distribution of samples
-  ggplot(aes(x = reach_mid)) +
+  ggplot(aes(x = reach_start)) +
   geom_histogram()
 #yep, theres a lot of sampling at the LCR
 
-fms <- fms %>%#calculate km from mile, or insert NA if tributary
-  mutate(start_rkm = case_when(RIVER_CODE == "COR" ~ MileToKmCOR(START_RM)),
-         reach = cut(start_rkm, seq(0, 504, by = reach.km)), #bin into reaches
-         reach_no = as.numeric(reach), #number each reach
-         reach_start = (reach_no - 1)*reach.km, #start point
-         reach_mid = reach_start + reach.km/2, #mid point
-         reach_end = reach_no*reach.km)
+fms <- fms %>% #calculate km from mile, or insert NA if tributary
+  mutate(start_rkm = case_when(RIVER_CODE == "COR" ~ MileToKmCOR(START_RM),
+                               #LCR will be next number after max Colorado
+                               RIVER_CODE == "LCR" ~ max.RM + 8),
+         #for COR, split into 8 km reaches
+         #for LCR, reach = (max COR reach) + 1
+         reach = cut(start_rkm, seq(0, 512, by = reach.km)),
+         reach_no = as.numeric(reach), #number for each reach
+         #get start point - a numeric field is useful for graphing
+         #for now, LCR has confluence rkm - not sure if this is best approach
+         reach_start = case_when(RIVER_CODE == "COR" ~ (reach_no - 1)*reach.km,
+                                 RIVER_CODE == "LCR" ~ MileToKmCOR(61.4))) %>%
+  arrange(reach)
+
+#remove the rkm 512s for LCR - not actual Rkm, just what I used to create
+#reach numbering without messing up factors
+fms$start_rkm <- ifelse(fms$RIVER_CODE == "LCR", NA, fms$start_rkm)
 
 antenna <- antenna %>%#calculate km from mile, or insert NA if tributary
-  mutate(start_rkm = case_when(RIVER_CODE == "COR" ~ MileToKmCOR(START_RM)),
-         reach = cut(start_rkm, seq(0, 504, by = reach.km)), #bin into reaches
-         reach_no = as.numeric(reach), #number each reach
-         reach_start = (reach_no - 1)*reach.km, #start point
-         reach_mid = reach_start + reach.km/2, #mid point
-         reach_end = reach_no*reach.km)
+  mutate(start_rkm = case_when(RIVER_CODE == "COR" ~ MileToKmCOR(START_RM),
+                               #LCR will be next number after max Colorado
+                               RIVER_CODE == "LCR" ~ max.RM + 8),
+         #for COR, split into 8 km reaches
+         #for LCR, reach = (max COR reach) + 1
+         reach = cut(start_rkm, seq(0, 512, by = reach.km)),
+         reach_no = as.numeric(reach), #number for each reach
+         #get start point - a numeric field is useful for graphing
+         #for now, LCR has confluence rkm - not sure if this is best approach
+         reach_start = case_when(RIVER_CODE == "COR" ~ (reach_no - 1)*reach.km,
+                                 RIVER_CODE == "LCR" ~ MileToKmCOR(61.4))) %>%
+  arrange(reach)
+
+#remove the rkm 512s for LCR - not actual Rkm, just what I used to create
+#reach numbering without messing up factors
+antenna$start_rkm <- ifelse(antenna$RIVER_CODE == "LCR", NA, antenna$start_rkm)
+
 # calculate days of effort for antennas ########
 #trip id, reach_start, year + season
 #antenna effort by trip, season, 8km reach, year
