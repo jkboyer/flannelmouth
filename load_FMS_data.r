@@ -591,7 +591,9 @@ fms <- fms %>%
            (day >= start.fall & day <= end.fall)) %>%
   #add variable for season
   mutate(season = case_when(day >= start.spring & day <= end.spring ~ "spring",
-                            day >= start.fall & day <= end.fall ~ "fall"))
+                            day >= start.fall & day <= end.fall ~ "fall")) %>%
+  #remove day column - would not want people to think it is actual date
+  select(-day)
 
 antenna <- antenna %>%
   left_join(gear) %>%
@@ -606,7 +608,9 @@ antenna <- antenna %>%
            (day >= start.fall & day <= end.fall)) %>%
   #add variable for season
   mutate(season = case_when(day >= start.spring & day <= end.spring ~ "spring",
-                            day >= start.fall & day <= end.fall ~ "fall"))
+                            day >= start.fall & day <= end.fall ~ "fall")) %>%
+  #remove day column - would not want people to think it is actual date
+  select(-day)
 
 samples <- samples %>%
   left_join(gear) %>%
@@ -627,7 +631,9 @@ samples <- samples %>%
   #NSE EL sites were 50m, not 250, need to be counted as 1/5 of a sample
   mutate(n.samples = case_when((SAMPLE_TYPE == 129 & GEAR_CODE == "EL") ~ 0.2,
    #other samples are 1 unit of effort (250m of EL, 1 hoop or antenna overnight)
-                               TRUE ~ 1))
+                               TRUE ~ 1)) %>%
+  #remove day column - would not want people to think it is actual date
+  select(-day)
 
 #for each trip, bin into 5 miles (counting from dam) ######
 #define length of reach to bin samples in to
