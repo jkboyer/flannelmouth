@@ -25,11 +25,12 @@ source("./functions/conversion_functions.r")
 
 #define cutoffs to use for subsetting data
 start.year <- 2004
-#season cutoffs - %j is day of year and will be same day regardless of year
-start.spring <- strftime(as.POSIXct("2020-03-01"), format = "%j")
-end.spring <- strftime(as.POSIXct("2020-06-20"), format = "%j")
-start.fall <- strftime(as.POSIXct("2020-08-01"), format = "%j")
-end.fall <- strftime(as.POSIXct("2020-10-31"), format = "%j")
+
+#season cutoffs - will make pretend 2000-mm-dd datetime to subset
+start.spring <- strftime(as.POSIXct("2000-03-01"))
+end.spring <- strftime(as.POSIXct("2000-06-20"))
+start.fall <- strftime(as.POSIXct("2000-08-01"))
+end.fall <- strftime(as.POSIXct("2000-10-31"))
 
 #gear types to keep
 #these are aggregated (e.g. baited hoop net includes HB, MHB, and more, see
@@ -571,8 +572,8 @@ gear <- read.csv("./data/gear_types.csv", stringsAsFactors = FALSE)
 
 gear <- gear %>%
   select(-n)
-#join generalized gear type to fish and sample data
 
+#join generalized gear type to fish and sample data
 fms <- fms %>%
   left_join(gear) %>%
 #one gear type is confusingly permanent and temporary antennas
@@ -580,7 +581,9 @@ fms <- fms %>%
   mutate(gear = case_when(GEAR_CODE == "BK_UNBAITED" &
                             SAMPLE_TYPE %in% c(127, 141) ~ "antenna_permanent",
                           TRUE ~ gear)) %>%
-  mutate(day = strftime(START_DATETIME, format = "%j")) %>%
+  mutate(day = as.POSIXct(paste0("2000", #assign same year to all
+                      #keep the month-day-time part
+                      substr(as.character(START_DATETIME), 5, 19)))) %>%
   filter(gear %in% gear.types.keep) %>% #subset to gear types to analyze
   #remove AGFD lower 1200 LCR samplign - enough LCR data from FWS
   filter(SAMPLE_TYPE %in% c(94, 95) == FALSE) %>%
@@ -595,7 +598,9 @@ antenna <- antenna %>%
   mutate(gear = case_when(GEAR_CODE == "BK_UNBAITED" &
                             SAMPLE_TYPE %in% c(127, 141) ~ "antenna_permanent",
                           TRUE ~ gear)) %>%
-  mutate(day = strftime(START_DATETIME, format = "%j")) %>%
+  mutate(day = as.POSIXct(paste0("2000", #assign same year to all
+                                 #keep the month-day-time part
+                                 substr(as.character(START_DATETIME), 5, 19)))) %>%
   filter(gear %in% gear.types.keep) %>% #gear type - temporary antennas only
   filter((day >= start.spring & day <= end.spring) | #spring or fall only
            (day >= start.fall & day <= end.fall)) %>%
@@ -605,7 +610,9 @@ antenna <- antenna %>%
 
 samples <- samples %>%
   left_join(gear) %>%
-  mutate(day = strftime(START_DATETIME, format = "%j")) %>%
+  mutate(day = as.POSIXct(paste0("2000", #assign same year to all
+                                 #keep the month-day-time part
+                                 substr(as.character(START_DATETIME), 5, 19)))) %>%
   mutate(gear = case_when(GEAR_CODE == "BK_UNBAITED" &
                             SAMPLE_TYPE %in% c(127, 141) ~ "antenna_permanent",
                           TRUE ~ gear)) %>%
@@ -813,7 +820,9 @@ fms <- fms %>%
     #NAs are either antenna records or missing data, reasonable to presume alive
     DISPOSITION_CODE %in% c("RA", NA) ~ "alive",
     #These codes mean fish was removed from population
-    DISPOSITION_CODE %in% c("DR", "DC", "DP", "TA") ~"dead"))
+    DISPOSITION_CODE %in% c("DR", "DC", "DP", "TA") ~"dead"),
+    size.class = case_when(TL < size.break ~ 1,
+                     TL >= size.break ~ 2))
 
 #save new csv file with all gear types  #######
 write.csv(fms, "./data/all_PIT_tagged_flannelmouth.csv",
