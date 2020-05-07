@@ -142,16 +142,10 @@ glimpse(nps)
 nps.sample <- read.csv("./data/NPS_shinumo_nets_sample.csv",
                        stringsAsFactors = FALSE)
 
-
 nps <- nps %>% #format dates
   mutate(START_DATE = as.Date(START_DATE, format = "%m/%d/%Y"),
          #convert to start datetime to match big boy data
          START_DATETIME = as.POSIXct(paste(START_DATE, "12:00:00")))
-
-nps <- nps %>%
-  select(c(colnames(nps)[colnames(nps) %in% colnames(fms)])) %>%
-  filter(PITTAG != "") #remove fish that are not PIT tagged
-glimpse(nps)
 
 #Fix location issues (missing RMs
 #rules: All COR captures on shinumo trips between rM 108 and 109.2
@@ -184,6 +178,11 @@ nps <- nps %>%
                                 RIVER_CODE == "SHI" ~ "COR",
                                 TRUE ~ RIVER_CODE)) %>%
   select(-STATION_ID) #no longer needed, remove
+
+nps <- nps %>%
+  select(c(colnames(nps)[colnames(nps) %in% colnames(fms)])) %>%
+  filter(PITTAG != "") #remove fish that are not PIT tagged
+glimpse(nps)
 
 # join NPS data to big boy data
 fms <- fms %>%
@@ -637,13 +636,14 @@ samples <- samples %>%
 
 #for each trip, bin into 5 miles (counting from dam) ######
 #define length of reach to bin samples in to
-max.RM <- max(MileToKmCOR(samples$START_RM[samples$RIVER_CODE == "COR"]), na.rm = TRUE)
+max.rkm <- max(MileToKmCOR(samples$START_RM[samples$RIVER_CODE == "COR"]), na.rm = TRUE)
 
 #convert river mile to kilometer
 samples <- samples %>% #calculate km from mile, or insert NA if tributary
   mutate(start_rkm = case_when(RIVER_CODE == "COR" ~ MileToKmCOR(START_RM),
                                #LCR will be next number after max Colorado
-                               RIVER_CODE == "LCR" ~ max.RM + 8),
+                               RIVER_CODE == "LCR" ~ max.rkm + 8,
+                               RIVER_CODE == "BAC" ~ max.rkm + 16),
          #for COR, split into 8 km reaches
          #for LCR, reach = (max COR reach) + 1
          reach = cut(start_rkm, seq(0, 512, by = reach.km)),
@@ -651,12 +651,14 @@ samples <- samples %>% #calculate km from mile, or insert NA if tributary
          #get start point - a numeric field is useful for graphing
          #for now, LCR has confluence rkm - not sure if this is best approach
          reach_start = case_when(RIVER_CODE == "COR" ~ (reach_no - 1)*reach.km,
-                                 RIVER_CODE == "LCR" ~ MileToKmCOR(61.4))) %>%
+                                 RIVER_CODE == "LCR" ~ MileToKmCOR(61.4),
+                                 RIVER_CODE == "BAC" ~ MileToKmCOR(88.3))) %>%
 arrange(reach)
 
  #remove the rkm 512s for LCR - not actual Rkm, just what I used to create
   #reach numbering without messing up factors
-samples$start_rkm <- ifelse(samples$RIVER_CODE == "LCR", NA, samples$start_rkm)
+samples$start_rkm <- ifelse(samples$RIVER_CODE %in% c( "LCR", "BAC"),
+                            NA, samples$start_rkm)
 
 samples %>% #plot to see spatial distribution of samples
   ggplot(aes(x = reach_start)) +
@@ -666,7 +668,8 @@ samples %>% #plot to see spatial distribution of samples
 fms <- fms %>% #calculate km from mile, or insert NA if tributary
   mutate(start_rkm = case_when(RIVER_CODE == "COR" ~ MileToKmCOR(START_RM),
                                #LCR will be next number after max Colorado
-                               RIVER_CODE == "LCR" ~ max.RM + 8),
+                               RIVER_CODE == "LCR" ~ max.rkm + 8,
+                               RIVER_CODE == "BAC" ~ max.rkm + 16),
          #for COR, split into 8 km reaches
          #for LCR, reach = (max COR reach) + 1
          reach = cut(start_rkm, seq(0, 512, by = reach.km)),
@@ -674,17 +677,19 @@ fms <- fms %>% #calculate km from mile, or insert NA if tributary
          #get start point - a numeric field is useful for graphing
          #for now, LCR has confluence rkm - not sure if this is best approach
          reach_start = case_when(RIVER_CODE == "COR" ~ (reach_no - 1)*reach.km,
-                                 RIVER_CODE == "LCR" ~ MileToKmCOR(61.4))) %>%
+                                 RIVER_CODE == "LCR" ~ MileToKmCOR(61.4),
+                                 RIVER_CODE == "BAC" ~MileToKmCOR(88.3))) %>%
   arrange(reach)
 
 #remove the rkm 512s for LCR - not actual Rkm, just what I used to create
 #reach numbering without messing up factors
-fms$start_rkm <- ifelse(fms$RIVER_CODE == "LCR", NA, fms$start_rkm)
+fms$start_rkm <- ifelse(fms$RIVER_CODE %in% c("LCR", "BAC"), NA, fms$start_rkm)
 
 antenna <- antenna %>%#calculate km from mile, or insert NA if tributary
   mutate(start_rkm = case_when(RIVER_CODE == "COR" ~ MileToKmCOR(START_RM),
                                #LCR will be next number after max Colorado
-                               RIVER_CODE == "LCR" ~ max.RM + 8),
+                               RIVER_CODE == "LCR" ~ max.rkm + 8,
+                               RIVER_CODE == "BAC" ~ max.rkm + 16),
          #for COR, split into 8 km reaches
          #for LCR, reach = (max COR reach) + 1
          reach = cut(start_rkm, seq(0, 512, by = reach.km)),
@@ -692,12 +697,14 @@ antenna <- antenna %>%#calculate km from mile, or insert NA if tributary
          #get start point - a numeric field is useful for graphing
          #for now, LCR has confluence rkm - not sure if this is best approach
          reach_start = case_when(RIVER_CODE == "COR" ~ (reach_no - 1)*reach.km,
-                                 RIVER_CODE == "LCR" ~ MileToKmCOR(61.4))) %>%
+                                 RIVER_CODE == "LCR" ~ MileToKmCOR(61.4),
+                                 RIVER_CODE == "BAC" ~MileToKmCOR(88.3))) %>%
   arrange(reach)
 
 #remove the rkm 512s for LCR - not actual Rkm, just what I used to create
 #reach numbering without messing up factors
-antenna$start_rkm <- ifelse(antenna$RIVER_CODE == "LCR", NA, antenna$start_rkm)
+antenna$start_rkm <- ifelse(antenna$RIVER_CODE %in% c("LCR", "BAC"),
+                            NA, antenna$start_rkm)
 
 # calculate days of effort for antennas ########
 #trip id, reach_start, year + season
@@ -739,6 +746,52 @@ rm(antenna) #no longer need separate file, now it is on fish data
 
 samples <- samples %>% #add year column
   mutate(year = as.numeric(substr(START_DATETIME, 1, 4)))
+
+#fix any effort discrepancies before calculating effort
+#check that hoops and antennas were set for 1 day, not more
+#if set for 2 days, effort = 2
+
+samples <- samples %>%
+  mutate(start_date = as.Date(substr(as.character(START_DATETIME), 1, 10)),
+         end_date = as.Date(substr(as.character(END_DATETIME), 1, 10)),
+         effort_days = round(as.numeric(difftime(end_date,
+                                                 start_date, units = "days"))))
+
+set_times <- samples %>%
+  group_by(gear, effort_days) %>%
+  summarize(n = n())
+#all temp antennas, baited hoop nets are n = 1 - sets over 2 days seen
+#IGNORE negative and huge numbers - are data entry errors, not monthlong sets
+#unbaited hoop nets were only things occasinally set for 2 or 3 days
+#adjust effort if needed
+samples <- samples %>%
+  mutate(n.samples = case_when(gear == "unbaited_hoop_net" &
+                                 effort_days >= 2, effort_days,
+                               TRUE ~ n.samples))
+
+# add effort data from trips we don't have sample data for
+#there were 30 hoops set in BAC (location unknown, NPS does not record that)
+#on BAC20180917
+nps.hoops.BAC <-
+  data.frame(TRIP_ID = "BAC20180917", gear = "baited_hoop_net",
+             season = "fall", reach_start = NA, RIVER_CODE = "BAC",
+             n.samples = 30)
+
+samples <- bind_rows(samples, nps.hoops.BAC)
+
+#All the samples coded SHI are actually mainstem samples near shinumo
+#switch to COR and add appropriate reach start km
+MileToKmCOR(108.6) #SHI
+MileToKmCOR(157.3) #HAV
+
+samples <- samples %>%
+  #assign reach where sampling occurred
+  mutate(reach_start = case_when(RIVER_CODE == "SHI" ~ 200,
+                                 RIVER_CODE == "HAV" ~ 272,
+                                 TRUE ~ reach_start),
+         #switch river code to COR
+         RIVER_CODE = case_when(RIVER_CODE %in% c("SHI", "HAV") ~ "COR",
+                                TRUE ~ RIVER_CODE))
 
 #effort by trip, year, season, 8km reach
 n.samples <- samples %>%
@@ -829,6 +882,13 @@ fms <- fms %>%
     DISPOSITION_CODE %in% c("DR", "DC", "DP", "TA") ~"dead"),
     size.class = case_when(TL < size.break ~ 1,
                      TL >= size.break ~ 2))
+
+
+
+#if effort is hoop net or antenna, and effort hours are between 35 and 50
+#   effort = 2
+#also do for 3 day sets
+#dont change negative and very long sets, thouse are date errors
 
 #save new csv file with all gear types  #######
 write.csv(fms, "./data/all_PIT_tagged_flannelmouth.csv",
