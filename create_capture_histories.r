@@ -1,21 +1,19 @@
 #convert data into capture history format
 #authors: Jan Boyer, Charles Yackulic
-#inputs:
-#outputs:
+#inputs: all_PIT_tagged_flannelmouth.csv in project data folder
+#        all PIT tagged flannies caught since 2004 with boat efishing,
+#        baited and unbaited hoop nets, and temporary submersible antennas
+#outputs: ./data/FMS_capture_history_reach.csv (capture history, reach)
+#         ./data/FMS_capture_history_length.csv (capture history, total length)
 
 #load packages and data ######
 fms <- read.csv("./data/all_PIT_tagged_flannelmouth.csv",
                 stringsAsFactors = FALSE)
-
-#effort.trip.reach <- read.csv("./data/effort_by_trip_reach.csv",
-#          stringsAsFactors = FALSE)
-
-#effort.trip <- read.csv("./data/effort_by_trip.csv",
-#          stringsAsFactors = FALSE)
+require(dplyr)
 
 #gears: EL = boat electrofishing
-#       HB = baited hoop
-#       HU = unbaited hoop
+#       HB = baited hoop net
+#       HU = unbaited hoop net
 #       AN = temp antenna
 
 #subset to only needed cols to simplify and help loop run faster
@@ -113,6 +111,9 @@ for (j in 1:length(unique(fms.test$PITTAG))){
   }
 }
 
+#remove all test dataframes before running loops with all data
+rm(fms.test, fms.TL, fms.reach, temp, tagcount, j, k, n.PIT, n.trips.gears,
+   tags.to.test, tm)
 
 #create capture histories with all FMS data #########
 #make 2 matrices: 1 with reach
@@ -158,7 +159,7 @@ for (j in 1:length(unique(fms$PITTAG))){
 }
 
 
-#total length matrix
+#total length matrix #########
 fms.TL <- matrix(0, #fill with zeros to start with
                  ncol = n.trips.gears + 1, #n trips/gear codes + 1 columns
                  nrow = n.PIT) #n unique tags
@@ -182,3 +183,8 @@ for (j in 1:length(unique(fms$PITTAG))){
     fms.TL[j, n.trips.gears + 1] <- tm
   }
 }
+
+#save capture histories
+#if my slow computer can ever run these loops to make them, that is
+write.csv(fms.reach, "./data/FMS_capture_history_reach.csv")
+write.csv(fms.TL, "./data/FMS_capture_history_length.csv")
