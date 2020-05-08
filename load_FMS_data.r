@@ -883,6 +883,10 @@ fms <- fms %>%
     size.class = case_when(TL < size.break ~ 1,
                      TL >= size.break ~ 2))
 
+#add a variable for trip and gear combined
+#this is the metric we will make capture histories on
+fms <- fms %>%
+  mutate(trip.gear = paste(TRIP_ID, gear, sep = "_"))
 
 
 #if effort is hoop net or antenna, and effort hours are between 35 and 50
