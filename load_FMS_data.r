@@ -774,6 +774,7 @@ samples <- samples %>%
 #on BAC20180917
 nps.hoops.BAC <-
   data.frame(TRIP_ID = "BAC20180917", gear = "baited_hoop_net",
+             gear_code_simple = "HB", year = 2018,
              season = "fall", reach_start = NA, RIVER_CODE = "BAC",
              n.samples = 30)
 
@@ -792,6 +793,9 @@ samples <- samples %>%
          #switch river code to COR
          RIVER_CODE = case_when(RIVER_CODE %in% c("SHI", "HAV") ~ "COR",
                                 TRUE ~ RIVER_CODE))
+#make combined trip/gear variable
+samples <- samples %>%
+  mutate(trip.gear = paste(TRIP_ID, gear_code_simplified, sep = "_"))
 
 #effort by trip, year, season, 8km reach
 n.samples <- samples %>%
@@ -885,8 +889,9 @@ fms <- fms %>%
 
 #add a variable for trip and gear combined
 #this is the metric we will make capture histories on
+
 fms <- fms %>%
-  mutate(trip.gear = paste(TRIP_ID, gear, sep = "_"))
+  mutate(trip.gear = paste(TRIP_ID, gear_code_simplified, sep = "_"))
 
 
 #if effort is hoop net or antenna, and effort hours are between 35 and 50

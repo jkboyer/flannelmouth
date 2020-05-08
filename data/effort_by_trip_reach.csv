@@ -1,5 +1,5 @@
 "TRIP_ID","season","year","reach_start","RIVER_CODE","baited_hoop_net","boat_electrofishing","unbaited_hoop_net","antenna_temporary"
-"BAC20180917","fall",NA,NA,"BAC",30,0,0,0
+"BAC20180917","fall",2018,NA,"BAC",30,0,0,0
 "GC20040311","spring",2004,96,"COR",0,14,0,0
 "GC20040311","spring",2004,104,"COR",0,10,0,0
 "GC20040311","spring",2004,112,"COR",0,90,0,0
