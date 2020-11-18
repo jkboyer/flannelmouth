@@ -92,7 +92,8 @@ fms.TL <- matrix(0, #fill with zeros to start with
                  nrow = n.PIT) #n unique tags
 
 #give matrix row and column names
-rownames(fms.TL) <- unique(fms.test$PITTAG)
+#sort() is needed so things are ordereed correctly
+rownames(fms.TL) <- sort(unique(fms.test$PITTAG))
 colnames(fms.TL) <- c(unique(fms.test$trip.gear), "disposition")
 
 #loop to fill empty fms.TL matrix with fish lengths
@@ -133,7 +134,7 @@ fms.reach <- matrix(0, #fill with zeros to start with
 
 #give matrix row and column names - needed so that the loop knows where
 #each tag and trip/gear record goes in matrix!
-rownames(fms.reach) <- unique(fms$PITTAG)
+rownames(fms.reach) <- sort(unique(fms$PITTAG))
 colnames(fms.reach) <- c(unique(fms$trip.gear), "disposition")
 
 #loop through tags and grab applicable data for each fish/PITTAG
