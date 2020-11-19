@@ -46,7 +46,7 @@ size.break <- 325
 
 # load data from big boy database ######
 # database file name: UPDATE to most recent version here
-db.GCMRC <- "FISH_SAMPLE_SPECIMEN_HISTORY_20200415_2011.mdb"
+db.GCMRC <- "FISH_SAMPLE_SPECIMEN_HISTORY_20201030_1404.mdb"
 
 # specify file location of GCMRC database
 #Laura's working file path
@@ -409,7 +409,7 @@ summary(lm.TL.to.FL)
 lm.FL.to.TL <- lm(TOTAL_LENGTH ~ FORK_LENGTH, data = fms.lengths)
 summary(lm.FL.to.TL)
 
-#extract coefficients
+#extract coefficients for fork-total length equations
 TLtoFL.intercept <- summary(lm.TL.to.FL)$coef["(Intercept)", "Estimate"]
 TLtoFL.slope <- summary(lm.TL.to.FL)$coef["TOTAL_LENGTH", "Estimate"]
 FLtoTL.intercept <- summary(lm.FL.to.TL)$coef["(Intercept)", "Estimate"]
@@ -450,16 +450,17 @@ TLtoFL.slope <- summary(lm.TL.to.FL)$coef["TOTAL_LENGTH", "Estimate"]
 FLtoTL.intercept <- summary(lm.FL.to.TL)$coef["(Intercept)", "Estimate"]
 FLtoTL.slope <- summary(lm.FL.to.TL)$coef["FORK_LENGTH", "Estimate"]
 
-#calculate predicted lengths on all data
+#for all fish - if total length is missing, calculate from fork
+#               if fork length missing, calculate from total
 fms <- fms %>%
   mutate(FORK_LENGTH = as.numeric(FORK_LENGTH),
          TOTAL_LENGTH = as.numeric(TOTAL_LENGTH)) %>%
   #if length is missing, calculate from other length, if length exists keep it
   mutate(TL = case_when(is.na(TOTAL_LENGTH) ~
-                          FLtoTL.intercept + FLtoTL.slope*FORK_LENGTH,
+                          round(FLtoTL.intercept + FLtoTL.slope*FORK_LENGTH, 0),
                         TRUE ~ TOTAL_LENGTH),
          FL = case_when(is.na(FORK_LENGTH) ~
-                          TLtoFL.intercept + TLtoFL.slope*TOTAL_LENGTH,
+                          round(TLtoFL.intercept + TLtoFL.slope*TOTAL_LENGTH, 0),
                         TRUE ~ FORK_LENGTH))
 
 #save all FMS (including not tagged) to examine size structure, maturity
@@ -473,7 +474,7 @@ fms <- fms %>%
   select(-c(SEX_CODE, SEX_COND_CODE, SEX_CHAR_CODE, length.tag,
             PITTAG2, PITTAG2_RECAP, PITTAG3, PITTAG3_RECAP))
 
-#also subset the sample dataframe
+#also subset the sample dataframe to since start year (2004)
 samples <- samples  %>%
   filter(START_DATETIME >= as.POSIXct(paste0(start.year, "-01-01 00:0:01")))
 
@@ -486,7 +487,8 @@ tribs <- fms %>%
 
 # some fish have tributary river codes, but a mainstem river mile recorded
 # (e.g. HAV 157.26, SHI 108.6), and a low (<0.2) or no kilometer record
-# these fish can be reclassified as COR (mainstem) fish
+# these fish were captured near a confluence and can be reclassified as
+# COR (mainstem) fish
 trib.cutoff <- 0.2 #how many miles up a tributary we consider mainstem
 #if start km < 0.2*1.609, or if start km is missing and start RM < 0.2,
 #reclassify as COR and assign start RM based on tributary
@@ -543,7 +545,7 @@ tribs %>%
   group_by(RIVER_CODE) %>%
   summarize(n = n()) %>%
   arrange(-n)
-#now only LCR has actual tributary fish
+#now only LCR and BAC has actual tributary fish
 #makes sense, most FMS from SHI and HAV are right in mouth
 
 rm(confluences, fms.lengths, tribs, lm.FL.to.TL, lm.TL.to.FL) # no longer needed, remove
@@ -649,7 +651,7 @@ samples <- samples %>% #calculate km from mile, or insert NA if tributary
          reach = cut(start_rkm, seq(0, 512, by = reach.km)),
          reach_no = as.numeric(reach), #number for each reach
          #get start point - a numeric field is useful for graphing
-         #for now, LCR has confluence rkm - not sure if this is best approach
+         #for now, LCR and BAC has confluence rkm - not sure if this is best approach
          reach_start = case_when(RIVER_CODE == "COR" ~ (reach_no - 1)*reach.km,
                                  RIVER_CODE == "LCR" ~ MileToKmCOR(61.4),
                                  RIVER_CODE == "BAC" ~ MileToKmCOR(88.3))) %>%
@@ -738,6 +740,33 @@ fms <- fms %>%
   bind_rows(antenna)
 
 rm(antenna) #no longer need separate file, now it is on fish data
+
+
+#calculate n times each fish captured
+n_captures <- fms %>%
+  group_by(PITTAG) %>%
+  summarize(n_captures = n(),
+            recapture = case_when(n_captures > 1 ~ "Y",
+                                  n_captures == 1 ~ "N"))
+
+fms <- fms %>%
+  left_join(n_captures)
+
+#subset to fish captured at least twice
+fms <- fms %>%
+  filter(n_captures >= 2)
+
+#how many fish were captured a certiain number of times?
+fms %>%
+  group_by(n_captures) %>%
+  summarize(n = n()) %>%
+  print(n = 30) #print all rows
+
+#subset to only fish captured at least twice
+#fms <- fms %>%  filter(n_captures >= 2)
+
+#ANOTHER QUESTION - do we need to subset to only fish captured over two time periods?
+# i.e., exclude fish caught twice in one spring and then never again?
 
 #antennas calculated from sample and antennas calculated from fms
 #ccheck match, replace 0s from sample with fms
@@ -897,7 +926,9 @@ fms <- fms %>%
 #if effort is hoop net or antenna, and effort hours are between 35 and 50
 #   effort = 2
 #also do for 3 day sets
-#dont change negative and very long sets, thouse are date errors
+#dont change negative and very long sets, those are date errors
+
+
 
 #save new csv file with all gear types  #######
 write.csv(fms, "./data/all_PIT_tagged_flannelmouth.csv",
