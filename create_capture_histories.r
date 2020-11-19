@@ -85,7 +85,6 @@ for (j in 1:length(unique(fms.test$PITTAG))){
     }
 }
 
-
 #total length matrix
 fms.TL <- matrix(0, #fill with zeros to start with
                  ncol = n.trips.gears + 1, #n trips/gear codes + 1 columns
@@ -128,6 +127,10 @@ n.PIT = length(unique(fms$PITTAG)) # n rows = n unique fish
 n.trips.gears = length(unique(fms$trip.gear)) #n cols = n trips + gears
 
 # reach matrix #######
+#NOTE: on Jan's computer, loops about take 7-8 hours to run
+#      try to run overnight, or when not at computer
+#      and save workspace (.rdata) afterwards
+
 fms.reach <- matrix(0, #fill with zeros to start with
                     ncol = n.trips.gears + 1, #n trips/gear codes + 1 = n columns
                     nrow = n.PIT) #n unique tags = n rows
@@ -186,6 +189,5 @@ for (j in 1:length(unique(fms$PITTAG))){
 }
 
 #save capture histories
-#if my slow computer can ever run these loops to make them, that is
 write.csv(fms.reach, "./data/FMS_capture_history_reach.csv")
 write.csv(fms.TL, "./data/FMS_capture_history_length.csv")
