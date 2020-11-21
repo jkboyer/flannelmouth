@@ -68,7 +68,7 @@ sqlColumns(db, "SAMPLE_SPECIMEN_ALL")$COLUMN_NAME
 fms <- sqlQuery(db,
               paste("SELECT SAMPLE_TYPE, FISH_T_SAMPLE.TRIP_ID, GEAR_CODE,",
                         "FISH_T_SAMPLE.START_DATETIME, RIVER_CODE, START_RM,",
-                        "END_RM, START_RKM, END_RKM, GPS_START_WAYPOINT,",
+                        "END_RM, START_RKM, END_RKM, STATION_ID, GPS_START_WAYPOINT,",
                         "GPS_END_WAYPOINT, GIS_X, GIS_Y, LAT, LON,",
                         "SPECIES_CODE, TOTAL_LENGTH, FORK_LENGTH,",
                         "WEIGHT, PITTAG, PITTAG_RECAP, PITTAG2, PITTAG2_RECAP,",
@@ -87,7 +87,7 @@ antenna <- sqlQuery(db,
                     paste("SELECT FISH_T_SAMPLE.SAMPLE_ID,",
                           "SAMPLE_TYPE, FISH_T_SAMPLE.TRIP_ID, GEAR_CODE,",
                           "RIVER_CODE, FISH_T_SAMPLE.START_DATETIME,",
-                          "END_DATETIME, START_RKM, START_RM,",
+                          "END_DATETIME, START_RKM, START_RM, STATION_ID,",
                           "PITTAG",
                           "FROM SAMPLE_SPECIMEN_ALL",
                           "WHERE GEAR_CODE = 'CUPS_BAITED'
@@ -734,6 +734,9 @@ samples <- samples %>%
 #keep only trips that we are using FMS data from
   filter(TRIP_ID %in% c(unique(fms$TRIP_ID), unique(antenna$TRIP_ID)))
 
+antenna <- antenna %>%
+  mutate(STATION_ID = as.character(STATION_ID))
+
 #merge antenna data onto fms data ########
 fms <- fms %>%
   mutate(year = as.numeric(year)) %>%
@@ -762,12 +765,6 @@ fms %>%
   summarize(n = n()) %>%
   print(n = 30) #print all rows
 
-#subset to only fish captured at least twice
-#fms <- fms %>%  filter(n_captures >= 2)
-
-#ANOTHER QUESTION - do we need to subset to only fish captured over two time periods?
-# i.e., exclude fish caught twice in one spring and then never again?
-
 #antennas calculated from sample and antennas calculated from fms
 #ccheck match, replace 0s from sample with fms
 
@@ -795,7 +792,7 @@ set_times <- samples %>%
 #adjust effort if needed
 samples <- samples %>%
   mutate(n.samples = case_when(gear == "unbaited_hoop_net" &
-                                 effort_days >= 2, effort_days,
+                                 effort_days >= 2 ~ effort_days,
                                TRUE ~ n.samples))
 
 # add effort data from trips we don't have sample data for
@@ -927,8 +924,6 @@ fms <- fms %>%
 #   effort = 2
 #also do for 3 day sets
 #dont change negative and very long sets, those are date errors
-
-
 
 #save new csv file with all gear types  #######
 write.csv(fms, "./data/all_PIT_tagged_flannelmouth.csv",
