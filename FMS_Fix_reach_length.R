@@ -22,6 +22,12 @@ MRS <- read.csv("C:/Users/ltennant/Desktop/FMS_mark_recap/QAQC/BB_Mechanical_rem
 LFS <- read.csv("C:/Users/ltennant/Desktop/FMS_mark_recap/QAQC/BB_LF_Stations.csv",
                 stringsAsFactors = FALSE) #Lee's Ferry stations
 
+FMS <- read.csv("./data/all_PIT_tagged_flannelmouth.csv") #all FMS
+MRS <- read.csv("./data/BB_Mechanical_removal_stations.csv",
+                stringsAsFactors = FALSE) #mechanical removal stations
+LFS <- read.csv("./data/BB_LF_Stations.csv",
+                stringsAsFactors = FALSE) #Lee's Ferry stations
+
 View(FMS)
 View(MRS)
 #####################################################################
