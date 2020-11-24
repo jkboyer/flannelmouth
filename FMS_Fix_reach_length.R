@@ -31,7 +31,36 @@ LFS <- read.csv("./data/BB_LF_Stations.csv",
 View(FMS)
 View(MRS)
 #####################################################################
+#Jan's attempt
+# merge station data based on unpadded station id
+#then fill in mile if mile is missing
+
+#column names need to match (for column we are joining on)
+colnames(FMS)
+
+#subset to just data missing mile to see missing data
+fms.missing <- FMS %>%
+  filter(is.na(START_RM) & RIVER_CODE == "COR")
+
+#when joining, subset table to be joined to only necessary columns
+MRS <- MRS %>%
+  #column names must match for joining column
+  transmute(STATION_ID = UNPADDED_STATION_ID,
+            #and not match for other columns
+            mile = START_RM)
+
+#join data from station table on to fms
+FMS <- FMS %>%
+  left_join(MRS) #left join keeps all FMS columns, only MRS cols that match
+
+# if else statement to add mile from station only if start_RM is missing
+FMS$START_RM <- ifelse(!is.na(FMS$START_RM), FMS$START_RM, FMS$mile)
+
+
 # work on correcting reach information first
+
+
+
 
 FMS <- FMS %>%
   mutate(START_RM = case_when(TRIP_ID == "GC20090430" & is.na(START_RM) ~ 108.6,
