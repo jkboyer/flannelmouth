@@ -386,8 +386,6 @@ fms %>%
 #tags with 14 digits are new tags
 #others are errors or missing digits - low enough numbers, just drop them.
 
-
-
 # get year from datetime
 fms <- fms %>%
   mutate(year = substr(as.character(START_DATETIME), 1, 4))
@@ -479,7 +477,6 @@ fms <- fms %>%
 #also subset the sample dataframe to since start year (2004)
 samples <- samples  %>%
   filter(START_DATETIME >= as.POSIXct(paste0(start.year, "-01-01 00:0:01")))
-
 #don't need to subset antennas by year, they were not used until 2009
 
 # fish captured in mouths of tributaries - recode as mainstem fish #####
@@ -498,8 +495,9 @@ trib.cutoff <- 0.2 #how many miles up a tributary we consider mainstem
 unique(fms$RIVER_CODE) # see what river codes there are
 
 #dataframe of confluence locations in miles
+#BAC not included because NPS did not supply rm or rkm data
 confluences <- data.frame(RIVER_CODE = c("COR", "HAV", "LCR", "SHI"),
-                          confluence_RM = c(NA, 157.3, 61.8,  109.3))
+                          confluence_RM = c(NA, 157.3, 61.8,  109.3 ))
 
 fms <- fms %>% #join confluence miles to fms data
   left_join(confluences)
@@ -552,7 +550,7 @@ tribs %>%
 
 rm(confluences, fms.lengths, tribs, lm.FL.to.TL, lm.TL.to.FL) # no longer needed, remove
 
-# calculate sampling effort ############
+# calculate sampling effort ###################################################
 
 #data has T on end of trip code cause was uploaded separately -
 #but is same trip, so remove T
@@ -757,9 +755,6 @@ n_captures <- fms %>%
 fms <- fms %>%
   left_join(n_captures)
 
-#subset to fish captured at least twice
-fms <- fms %>%
-  filter(n_captures >= 2)
 
 #how many fish were captured a certiain number of times?
 fms %>%
