@@ -50,7 +50,9 @@ db.GCMRC <- "FISH_SAMPLE_SPECIMEN_HISTORY_20201030_1404.mdb"
 
 # specify file location of GCMRC database
 #Laura's working file path
-gcmrc.file.path <- "M:/Lovich/Laura Tennant work folder/GCMRC/FMS_mark_recap/"
+# gcmrc.file.path <- "M:/Lovich/Laura Tennant work folder/GCMRC/FMS_mark_recap/"
+# Laura's coronavirus work from home filepath
+gcmrc.file.path <- "C:/Users/ltennant/Desktop/FMS_mark_recap/"
 #Jan's work file path
 #gcmrc.file.path <- "\\\\flag-server/Office/GCMRC_master_database/"
 #Jan's coronavirus work from home filepath
@@ -129,13 +131,9 @@ odbcClose(db) #close database connection
 # load additional data from NPS and FWS ######
 # capture data mostly from bright angel and shinumo (mainstem sampling) trips
 
-#load NPS flannelmouth data
-#nps.filepath <- "\\\\FLAG-SERVER/Office/Grand Canyon Downstream/Databases/NPS_data/"
-nps.filepath <- "C:/Users/jboyer/Documents/data/"
-nps.filename <- "NPS_FMS_data_captures_forJan17March2020.csv"
-
 #load NPS flannelmouth PIT tag data
-nps <- read.csv(paste0(nps.filepath, nps.filename), stringsAsFactors = FALSE)
+nps <- read.csv("./data/NPS_FMS_data_captures_forJan17March2020.csv",
+                       stringsAsFactors = FALSE)
 glimpse(nps)
 
 #nps.sample data
@@ -216,13 +214,9 @@ samples <- samples %>%
 #not yet in big boy
 
 #NPS antenna data
-#Adding NPS antenna BAC data in (Laura's file path)
-NPS.ant <- read.csv("C:/Users/ltennant/Desktop/FMS_mark_recap/FMS_NPScaptures_on_BAC_antenna.csv")
-
-#Jan's filepaths
-NPSdataantenna <- "FMS_NPScaptures_on_BAC_antenna.csv"
-NPS.ant <- read.csv(paste0(nps.filepath, NPSdataantenna),
-                    stringsAsFactors = FALSE)
+#Adding NPS antenna BAC data
+NPS.ant <- read.csv("./data/FMS_NPScaptures_on_BAC_antenna.csv",
+                stringsAsFactors = FALSE)
 
 NPS.ant <- NPS.ant %>% #format date as date
   mutate(detected_at = as.Date(detected_at, format = "%m/%d/%Y"))
