@@ -13,7 +13,7 @@
 #      of Rstudio only run 64-bit R) to use RODBC to connect to access database
 #      in Rstudio Tools/Global Options/General, click change button by R version
 
-#setup: load packages, data, define subsetting criteria ######
+#setup: load packages, data, define subsetting criteria #######################
 library(RODBC) #database interface
 library(tidyverse)
 library(lubridate) #need this for date transformation
@@ -44,9 +44,9 @@ reach.km = 8
 #size break - dividing point between adult and subadult (in mm)
 size.break <- 325
 
-# load data from big boy database ######
+# load data from big boy database #############################################
 # database file name: UPDATE to most recent version here
-db.GCMRC <- "FISH_SAMPLE_SPECIMEN_HISTORY_20201030_1404.mdb"
+db.GCMRC <- "FISH_SAMPLE_SPECIMEN_HISTORY_20201210_1415.mdb"
 
 # specify file location of GCMRC database
 #Laura's working file path
@@ -126,12 +126,12 @@ samples <- sqlQuery(db,
 
 odbcClose(db) #close database connection
 
-# load additional data from NPS and FWS ######
+# load additional data from NPS and FWS ######################################
 # capture data mostly from bright angel and shinumo (mainstem sampling) trips
 
 #load NPS flannelmouth data
 #nps.filepath <- "\\\\FLAG-SERVER/Office/Grand Canyon Downstream/Databases/NPS_data/"
-nps.filepath <- "C:/Users/jboyer/Documents/data/"
+nps.filepath <- "./data/"
 nps.filename <- "NPS_FMS_data_captures_forJan17March2020.csv"
 
 #load NPS flannelmouth PIT tag data
@@ -148,7 +148,7 @@ nps <- nps %>% #format dates
          START_DATETIME = as.POSIXct(paste(START_DATE, "12:00:00")))
 
 #Fix location issues (missing RMs
-#rules: All COR captures on shinumo trips between rM 108 and 109.2
+#rules: All COR captures on shinumo trips were between RM 108 and 109.2
 #stations labeled -1 in tribs are close to mouth
 # (below weir and within 200m of COR at BAC, below first barrier at HAV)
 #positive number station ids (1-5, 1-3) go from downstream to upstream
@@ -280,15 +280,15 @@ FWS.ant <- read.csv("./data/Antennas_COR_USFWS_update.csv",
  # filter(Species == "FMS")
 
 #format date and time
-FWS.ant$newSTART_DATETIME <- gsub("/","-", FWS.ant$Datetime)
-FWS.ant$formattedSTART_DATETIME <- parse_date_time(FWS.ant$newSTART_DATETIME, orders="mdy_H!M!")
+FWS.ant$START_DATETIME <- gsub("/","-", FWS.ant$Datetime)
+FWS.ant$START_DATETIME <- parse_date_time(FWS.ant$START_DATETIME, orders="mdy_H!M!")
 
 #rename columns
 colnames(FWS.ant)[4] <- "PITTAG"
 colnames(FWS.ant)[6] <- "RIVER_CODE"
 colnames(FWS.ant)[7] <- "START_RM"
 colnames(FWS.ant)[10] <- "Antenna_ID"
-colnames(FWS.ant)[16] <- "START_DATETIME"
+
 
 #add columns (year and PITTAG_RECAP added in later code)
 FWS.ant <- FWS.ant %>%
@@ -319,7 +319,7 @@ FWS.ant <- FWS.ant %>%
 #remove columns
 FWS.ant <- FWS.ant %>%
   select (-c(Date, Time, Datetime, Species, Side,
-             X, X.1, newSTART_DATETIME, Baited, Antenna.Type))
+             X, X.1, Baited, Antenna.Type))
 
 #DOES NOT HAVE SAMPLE_id
 #create one from trip id+ antenna ID
@@ -347,7 +347,7 @@ antenna <- antenna %>%
 
 rm(FWS.ant) #no longer needed, remove
 
-# Fix various errors in data ######
+# Fix various errors in data ##################################################
 fms <- fms %>% #don't need species column since they are all flannelmouth
   select(-SPECIES_CODE) #remove column
 
@@ -367,7 +367,7 @@ fms %>%
   summarize(n = n())
 
 #Incorrect PIT tag codes - FIX THEM
-# . was omitted in some 3DD.003... entries (recorded as 3dd003...)
+# . was omitted in some 3DD.003... entries (recorded as 3DD003...)
 #for lengths of 13, if 4th character is not . add .
 fms <- fms %>%
   mutate(PITTAG = case_when(nchar(PITTAG) == 13 & #one less than normal 14
@@ -385,6 +385,8 @@ fms %>%
 #tags with 11 digits are old tags
 #tags with 14 digits are new tags
 #others are errors or missing digits - low enough numbers, just drop them.
+
+
 
 # get year from datetime
 fms <- fms %>%
