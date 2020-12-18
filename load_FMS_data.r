@@ -131,14 +131,6 @@ odbcClose(db) #close database connection
 # load additional data from NPS and FWS ######################################
 # capture data mostly from bright angel and shinumo (mainstem sampling) trips
 
-<<<<<<< HEAD
-=======
-#load NPS flannelmouth data
-#nps.filepath <- "\\\\FLAG-SERVER/Office/Grand Canyon Downstream/Databases/NPS_data/"
-nps.filepath <- "./data/"
-nps.filename <- "NPS_FMS_data_captures_forJan17March2020.csv"
-
->>>>>>> 57b63ccc47650fc90fc6301299a76c0d93712f53
 #load NPS flannelmouth PIT tag data
 nps <- read.csv("./data/NPS_FMS_data_captures_forJan17March2020.csv",
                        stringsAsFactors = FALSE)
@@ -306,7 +298,7 @@ FWS.ant$SAMPLE_TYPE <- as.numeric(FWS.ant$SAMPLE_TYPE)
 
 #Havasu needs a START_RM
 FWS.ant <- FWS.ant %>%
-  mutate(START_RM = case_when(RIVER_CODE == "HAV" ~ 157.3,
+  mutate(START_RM = case_when(RIVER_CODE == "COR" ~ 157.3,
                               TRUE ~ START_RM))
 #two types of antennas: shore-based antennas need to be different sample type
 FWS.ant <- FWS.ant %>%
