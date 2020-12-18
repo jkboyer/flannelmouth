@@ -296,10 +296,23 @@ FWS.ant$START_RM <- as.numeric(FWS.ant$START_RM)
 FWS.ant$year <- as.numeric(FWS.ant$year)
 FWS.ant$SAMPLE_TYPE <- as.numeric(FWS.ant$SAMPLE_TYPE)
 
-#Havasu needs a START_RM
+#Havasu needs a START_RM and name reassigned because antennas placed at mouth of HAV in COR
 FWS.ant <- FWS.ant %>%
-  mutate(START_RM = case_when(RIVER_CODE == "COR" ~ 157.3,
+  mutate(START_RM = case_when(RIVER_CODE == "HAV" ~ 157.3,
+                              TRUE ~ START_RM),
+        RIVER_CODE = case_when(RIVER_CODE == "HAV" ~ "COR",
+                                 TRUE ~ RIVER_CODE))
+
+#need to assign RM manually (Pillow sent "PA20180521.csv" file with RMs on 12/18/20)
+FWS.ant<- FWS.ant %>%
+  mutate(START_RM = case_when(TRIP_ID == "GC20180521" & is.na(START_RM) & Date == "5/21/2018" ~ 236.2,
+                              #5/22/2018 antennas were placed between RM 236.2 and 249.8 (just assigned RM to b/t these two)
+                              TRIP_ID == "GC20180521" & is.na(START_RM) & Date == "5/22/2018" ~ 243,
+                              #5/23/2018 antennas were placed between RM 247.1 and 268 (just assigned RM to b/t these two)
+                              TRIP_ID == "GC20180521" & is.na(START_RM) & Date == "5/23/2018" ~ 257.55,
+                              TRIP_ID == "GC20180521" & is.na(START_RM) & Date == "5/24/2018" ~ 268,
                               TRUE ~ START_RM))
+
 #two types of antennas: shore-based antennas need to be different sample type
 FWS.ant <- FWS.ant %>%
   mutate(SAMPLE_TYPE = case_when(Antenna.Type == "Shore Based" ~ 127,
