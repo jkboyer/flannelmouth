@@ -14,7 +14,7 @@
 library(tidyverse)
 
 #load station.csv files that have station information needed
-fms <- read.csv("./data/all_PIT_tagged_flannelmouth.csv") #all FMS ############ Need to update - only has 30K tags, needs 90K!!!!!!!!!!!!!!!!!!!!!!!!!
+fms <- read.csv("./data/all_PIT_tagged_flannelmouth.csv") #all FMS
 mrs <- read.csv("./data/BB_Mechanical_removal_stations.csv",
                 stringsAsFactors = FALSE) #mechanical removal stations
 lfs <- read.csv("./data/BB_LF_Stations.csv",
@@ -80,14 +80,30 @@ fms.missing <- fms %>%
 # other weird shit happening with tribs
 trib <- fms %>%
   filter(RIVER_CODE !="COR" & !is.na(START_RM))
-view(trib)
 
-#LCR only trib with weird RMs; remove records where LCR has START_RM weirdness (n=20)
+#-------------------------------------------------------#
+### having trouble here....
+# LCR only trib with weird RMs; remove records where LCR has START_RM weirdness (n=20)
+#These are the sample type records that neeed to be removed
+check <- fms %>%
+  filter(RIVER_CODE == "LCR" & SAMPLE_TYPE == 129) #14 records to remove
+check2 <- fms %>%
+  filter(RIVER_CODE == "LCR" & SAMPLE_TYPE == 128) #6 records to remove
 
-
-
+fms2 <- subset(fms, RIVER_CODE != "LCR" & SAMPLE_TYPE != 129) #this code is getting me close, but it's still removing 11K records; should only be 14
 
 # ------------------------------------------------------#
+#look for specific PIT tags with "NAs" for TL & FL, EXCEPT antennas
+tl <- fms %>%
+  filter(is.na(TL) & is.na(FL)) %>%
+  filter(gear_code_simplified != 'AN') #42 records to remove
+
+### Having trouble here too (basically same problem as above)....
+# Remove fish where TL = "NA" & FL = "NA" (keep antennas)
+
+
+
+
 
 
 
