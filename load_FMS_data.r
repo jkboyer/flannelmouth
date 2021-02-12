@@ -538,7 +538,7 @@ fms <- fms %>%
   select(-confluence_RM) #no longer needed, remove column
 
 #Questions still remaining:
-#   in LCR, what is mile 197?
+#   in LCR, what is mile 197? it was an agg trip recode as COR
 #   lots of zeros (especially in Shinumo). Confluence, or missing data?
 #   should I give each trib a confluence river mile so we have that location
 #       for modelling movement?
@@ -556,6 +556,82 @@ tribs %>%
 #makes sense, most FMS from SHI and HAV are right in mouth
 
 rm(confluences, fms.lengths, tribs, lm.FL.to.TL, lm.TL.to.FL) # no longer needed, remove
+
+# a mechanical removal trip with many records is missing river mile ########
+# load table with river miles of station and merge
+#grab mechanical removal stations from Big Boy to work on fixing reach data
+
+#load station.csv files that have station information needed
+mrs <- read.csv("./data/BB_Mechanical_removal_stations.csv",
+                stringsAsFactors = FALSE) #mechanical removal stations
+lfs <- read.csv("./data/BB_LF_Stations.csv",
+                stringsAsFactors = FALSE) #Lee's Ferry stations
+
+head(mrs)
+head(lfs)
+
+#merge station data based on unpadded station id
+#then fill in mile if mile is missing
+
+#column names need to match (for column we are joining on)
+colnames(fms)
+
+#subset to just data missing mile to see missing data
+fms.missing <- fms %>%
+  filter(is.na(START_RM) & RIVER_CODE == "COR")
+
+#when joining, subset table to be joined to only necessary columns
+mrs <- mrs %>% #need to associate mechanical removal station IDs to get RM
+  #column names must match for joining column
+  transmute(STATION_ID = UNPADDED_STATION_ID,
+            #and not match for other columns
+            mile = START_RM)
+
+
+glimpse(fms)
+glimpse(mrs)
+
+#join data from mechanical removal station table on to fms
+fms <- fms %>%
+  left_join(mrs) #left join keeps all FMS columns, only MRS cols that match
+
+# if else statement to add mile from station only if start_RM is missing
+fms$START_RM <- ifelse(!is.na(fms$START_RM), fms$START_RM, fms$mile)
+
+# join data from the Lee's Ferry station table on to fms
+lfs <- lfs %>% #need to associate Lee's Ferry station IDs to get RM
+  transmute(STATION_ID = UNPADDED_STATION_ID,
+            mile2 = DOWN_RM)
+
+fms <- fms %>%
+  left_join(lfs)
+
+# if else statement to add mile from station only if start_RM is missing
+fms$START_RM <- ifelse(!is.na(fms$START_RM), fms$START_RM, fms$mile2)
+
+# remove mile columns from fms
+fms <- fms %>%
+  select(-mile, -mile2)
+
+rm(lfs, mrs) #no longer needed, remove
+
+# what else is missing for RMs and RKMs (inlcudes LCR, HAV, etc.)
+fms.missing <- fms %>%
+  filter(is.na(START_RM) & is.na(START_RKM))
+
+# remove all RM = NA for where we couldn't find the RM information for COR (only 27 records) -
+# did it for RKMs for tribs as well (18 records) = 45 records
+fms <- fms %>%
+  filter(!is.na(START_RM) | !is.na(START_RKM))
+
+# double checking all records were removed
+fms.missing <- fms %>%
+  filter(is.na(START_RM) & is.na(START_RKM))
+
+# other weird shit happening with tribs
+trib <- fms %>%
+  filter(RIVER_CODE !="COR" & !is.na(START_RM))
+
 
 # calculate sampling effort ###################################################
 
