@@ -164,8 +164,7 @@ nps <- nps %>%
   mutate(START_RM = case_when(RIVER_CODE == "COR" & is.na(START_RM) ~ 108.6,
                               RIVER_CODE == "BAC" & STATION_ID == -1 ~ 88.3,
                               RIVER_CODE == "HAV" ~ 157.3,
-                              # I think all SHI captures are below waterfall
-                              # but check with Brian
+                              # all SHI captures are below waterfall
                               RIVER_CODE == "SHI" ~ 109.3,
                               TRUE ~ START_RM),
          #for all trib fish near mouth, recode river to Colorado
@@ -174,7 +173,13 @@ nps <- nps %>%
                                 # I think all SHI captures are below waterfall
                                 # but check with Brian
                                 RIVER_CODE == "SHI" ~ "COR",
-                                TRUE ~ RIVER_CODE)) %>%
+                                TRUE ~ RIVER_CODE),
+        #for further upstream Bright Angel sites, assign them rkm 1.0
+        #km 1.0 is arbitrary, but actually having a rkm will ensure these fish
+        #are not dropped for missing location info, and all BAC fish will
+        #be binned into one 8km BAC reach for analysis anyway
+         START_RKM = case_when(RIVER_CODE == "BAC" & STATION_ID > -1 ~ 1.0,
+                               TRUE ~ as.numeric(NA))) %>%
   select(-STATION_ID) #no longer needed, remove
 
 nps <- nps %>%
@@ -377,7 +382,7 @@ fms %>%
 # . was omitted in some 3DD.003... entries (recorded as 3DD003...)
 #for lengths of 13, if 4th character is not . add .
 fms <- fms %>%
-  mutate(PITTAG = case_when(nchar(PITTAG) == 13 & #one less than normal 14
+  mutate(PITTAG = case_when(nchar(PITTAG) == 13 & #one less than normal 14 chars
                               #and there is no . in PITTAG
                               str_detect(PITTAG, "\\.") == FALSE ~
                               paste0(substr(PITTAG,1,3), ".", substr(PITTAG,4,13)),
@@ -470,7 +475,7 @@ fms <- fms %>%
                           round(TLtoFL.intercept + TLtoFL.slope*TOTAL_LENGTH, 0),
                         TRUE ~ FORK_LENGTH))
 
-#save all FMS (including not tagged) to examine size structure, maturity
+#save all FMS (including not tagged) to examine size structure, size at maturity
 write.csv(fms, "./data/all_flannelmouth.csv", row.names = FALSE)
 
 #subset to only PIT tagged fish captured since start year (2004) ######
@@ -523,10 +528,33 @@ fms <- fms %>%
       (is.na(START_RKM) & START_RM <= trib.cutoff) |
       #or river mile matches the appropriate tributary confluence
       (RIVER_CODE == "LCR" & START_RM >= 61.3 & START_RM <= 61.4) |
+      (RIVER_CODE == "BAC" & START_RM >= 87.5 & START_RM <= 88.8) |
       (RIVER_CODE == "SHI" & START_RM >= 108.6 & START_RM <= 109.3) |
       (RIVER_CODE == "HAV" & START_RM >= 156.7 & START_RM <= 157.3)) ~ "COR",
     #otherwise, keep river code unchanged
     TRUE ~ RIVER_CODE))
+
+#Do the same for antenna data - a few antennas in mouth of HAV should be COR
+antenna <- antenna %>% #join confluence miles to fms data
+  left_join(confluences)
+
+antenna <- antenna %>%
+  mutate(START_RM = case_when((RIVER_CODE != "COR" &
+             #trib rkm is very close to confluence
+             (START_RKM <= trib.cutoff*1.609 |
+                 (is.na(START_RKM) & START_RM <= trib.cutoff))) ~ confluence_RM,
+                  TRUE ~ START_RM),
+         RIVER_CODE = case_when( #reclassify as COR for tributary captures if:
+           #rkm or rm is < 0.2 miles (close to confluence)
+           RIVER_CODE != "COR" & (START_RKM <= trib.cutoff*1.609 |
+               (is.na(START_RKM) & START_RM <= trib.cutoff) |
+               #or river mile matches the appropriate tributary confluence
+               (RIVER_CODE == "LCR" & START_RM >= 61.3 & START_RM <= 61.4) |
+               (RIVER_CODE == "BAC" & START_RM >= 87.5 & START_RM <= 88.8) |
+               (RIVER_CODE == "SHI" & START_RM >= 108.6 & START_RM <= 109.3) |
+               (RIVER_CODE == "HAV" & START_RM >= 156.7 & START_RM <= 157.3)) ~ "COR",
+           #otherwise, keep river code unchanged
+           TRUE ~ RIVER_CODE))
 
 #all the 2017 agg trip shinumo nets were below waterfall,
 #and the Havasu nets were right in mouth - recode as COR
@@ -567,70 +595,102 @@ mrs <- read.csv("./data/BB_Mechanical_removal_stations.csv",
 lfs <- read.csv("./data/BB_LF_Stations.csv",
                 stringsAsFactors = FALSE) #Lee's Ferry stations
 
+#other lees ferry file does not have NO/TRGD stations
+lfs2 <- read.csv("./data/LF_Stations.csv", #this file used for AGFD site selection,
+                 stringsAsFactors = FALSE) #NO/TRGD Ids should be in here
+
 head(mrs)
 head(lfs)
 
-#merge station data based on unpadded station id
+#merge station data based on station id
 #then fill in mile if mile is missing
 
 #column names need to match (for column we are joining on)
 colnames(fms)
 
 #subset to just data missing mile to see missing data
-fms.missing <- fms %>%
+fms.missing.mile <- fms %>%
   filter(is.na(START_RM) & RIVER_CODE == "COR")
 
+#station IDs are in multiple places
+#UNPADDED_STATION_ID or STATION_ID for mechanical removal
+#  coding of station ID was not consistent so have to join on both to get miles
+#NO ids are in Lees Ferry file, ___ column
+
 #when joining, subset table to be joined to only necessary columns
-mrs <- mrs %>% #need to associate mechanical removal station IDs to get RM
+mrs1 <- mrs %>% #need to associate mechanical removal station IDs to get RM
   #column names must match for joining column
-  transmute(STATION_ID = UNPADDED_STATION_ID,
+  transmute(STATION_ID = STATION_ID,
             #and not match for other columns
             mile = START_RM)
 
+mrs2 <- mrs %>%
+  transmute(STATION_ID = UNPADDED_STATION_ID,
+            mile = START_RM)
 
+lfs1 <- lfs %>% #need to associate Lee's Ferry station IDs to get RM
+  transmute(STATION_ID = UNPADDED_STATION_ID,
+            mile = DOWN_RM)
+
+lfs2 <- lfs2 %>% #need to associate Lee's Ferry station IDs to get RM
+  transmute(STATION_ID = NO_start,
+            mile = rm_start)
+
+#rbind them all together so I only have to merge once)
+stations <- bind_rows(mrs1, mrs2, lfs1, lfs2) %>%
+  distinct() #unique rows only, remove duplicates
+
+#check that columns match
 glimpse(fms)
-glimpse(mrs)
+glimpse(mrs1)
+glimpse(lfs1)
 
 #join data from mechanical removal station table on to fms
 fms <- fms %>%
-  left_join(mrs) #left join keeps all FMS columns, only MRS cols that match
+  left_join(stations)
 
 # if else statement to add mile from station only if start_RM is missing
 fms$START_RM <- ifelse(!is.na(fms$START_RM), fms$START_RM, fms$mile)
 
-# join data from the Lee's Ferry station table on to fms
-lfs <- lfs %>% #need to associate Lee's Ferry station IDs to get RM
-  transmute(STATION_ID = UNPADDED_STATION_ID,
-            mile2 = DOWN_RM)
+#how many are still missing?
+fms.missing.mile <- fms %>%
+  filter(is.na(START_RM) & RIVER_CODE == "COR")
 
-fms <- fms %>%
-  left_join(lfs)
+#still some NO sites missing from a GC January 2015 trip, but winter data will
+# be subset out anyway so not worth fixing, just drop that data
+#also ~ 50 fish from various trips missing river mile due to incomplete data
+# recording, just drop, 50 fish out of 90k records is nothing.
 
-# if else statement to add mile from station only if start_RM is missing
-fms$START_RM <- ifelse(!is.na(fms$START_RM), fms$START_RM, fms$mile2)
-
-# remove mile columns from fms
-fms <- fms %>%
-  select(-mile, -mile2)
-
-rm(lfs, mrs) #no longer needed, remove
+fms <- fms %>% # remove mile columns from fms
+  select(-mile)
+rm(lfs, mrs, lfs1, lfs2, mrs1, mrs2, stations) #no longer needed, remove
 
 # what else is missing for RMs and RKMs (inlcudes LCR, HAV, etc.)
-fms.missing <- fms %>%
-  filter(is.na(START_RM) & is.na(START_RKM))
+missing.mile.tribs <- fms %>%
+  filter(RIVER_CODE != "COR" & is.na(START_RM) & is.na(START_RKM))
+# Missing location info:
+#  LCR NSE data (129): drop, Charles said NSE LCR data is weird anyway
+# BAC records - should figure out cause we don't have much BAC data
+
 
 # remove all RM = NA for where we couldn't find the RM information for COR (only 27 records) -
 # did it for RKMs for tribs as well (18 records) = 45 records
-fms <- fms %>%
-  filter(!is.na(START_RM) | !is.na(START_RKM))
+fms <- fms %>%  #only keep mainstem records if they have river mile
+  filter((!is.na(START_RM) & RIVER_CODE == "COR") |
+           #keep trip records if they have kilometer OR mile
+           RIVER_CODE %in% c("BAC", "HAV", "LCR", "SHI") &
+              (!is.na(START_RM) | !is.na(START_RKM)))
 
 # double checking all records were removed
-fms.missing <- fms %>%
+fms.missing.mile <- fms %>%
   filter(is.na(START_RM) & is.na(START_RKM))
 
-# other weird shit happening with tribs
-trib <- fms %>%
-  filter(RIVER_CODE !="COR" & !is.na(START_RM))
+#Also remove fish that are missing length
+fms.missing.length <- fms %>%
+  filter(is.na(TL))
+#only 174 fish and they are missing fork lengths too - just drop the data
+fms <- fms %>%
+  filter(!is.na(TL))
 
 
 # calculate sampling effort ###################################################
@@ -657,7 +717,7 @@ gear <- read.csv("./data/gear_types.csv", stringsAsFactors = FALSE)
 gear <- gear %>%
   select(-n)
 
-#join generalized gear type to fish and sample data
+#join generalized gear type to fms and antenna and sample data
 fms <- fms %>%
   left_join(gear) %>%
 #one gear type is confusingly permanent and temporary antennas
@@ -712,16 +772,13 @@ samples <- samples %>%
   #add variable for season
   mutate(season = case_when(day >= start.spring & day <= end.spring ~ "spring",
                             day >= start.fall & day <= end.fall ~ "fall")) %>%
-  #NSE EL sites were 50m, not 250, need to be counted as 1/5 of a sample
-  mutate(n.samples = case_when((SAMPLE_TYPE == 129 & GEAR_CODE == "EL") ~ 0.2,
-   #other samples are 1 unit of effort (250m of EL, 1 hoop or antenna overnight)
-                               TRUE ~ 1)) %>%
   #remove day column - would not want people to think it is actual date
   select(-day)
 
 #for each trip, bin into 5 miles (counting from dam) ######
 #define length of reach to bin samples in to
-max.rkm <- max(MileToKmCOR(samples$START_RM[samples$RIVER_CODE == "COR"]), na.rm = TRUE)
+max.rkm <- max(MileToKmCOR(samples$START_RM[samples$RIVER_CODE == "COR"]),
+               na.rm = TRUE)
 
 #convert river mile to kilometer
 samples <- samples %>% #calculate km from mile, or insert NA if tributary
@@ -731,7 +788,7 @@ samples <- samples %>% #calculate km from mile, or insert NA if tributary
                                RIVER_CODE == "BAC" ~ max.rkm + 16),
          #for COR, split into 8 km reaches
          #for LCR, reach = (max COR reach) + 1
-         reach = cut(start_rkm, seq(0, 512, by = reach.km)),
+         reach = cut(start_rkm, seq(0, 520, by = reach.km)),
          reach_no = as.numeric(reach), #number for each reach
          #get start point - a numeric field is useful for graphing
          #for now, LCR and BAC has confluence rkm - not sure if this is best approach
@@ -740,7 +797,7 @@ samples <- samples %>% #calculate km from mile, or insert NA if tributary
                                  RIVER_CODE == "BAC" ~ MileToKmCOR(88.3))) %>%
 arrange(reach)
 
- #remove the rkm 512s for LCR - not actual Rkm, just what I used to create
+ #remove the rkm 512s for LCR and 520s for BAC - not actual Rkm, just what I used to create
   #reach numbering without messing up factors
 samples$start_rkm <- ifelse(samples$RIVER_CODE %in% c( "LCR", "BAC"),
                             NA, samples$start_rkm)
@@ -757,7 +814,7 @@ fms <- fms %>% #calculate km from mile, or insert NA if tributary
                                RIVER_CODE == "BAC" ~ max.rkm + 16),
          #for COR, split into 8 km reaches
          #for LCR, reach = (max COR reach) + 1
-         reach = cut(start_rkm, seq(0, 512, by = reach.km)),
+         reach = cut(start_rkm, seq(0, 520, by = reach.km)),
          reach_no = as.numeric(reach), #number for each reach
          #get start point - a numeric field is useful for graphing
          #for now, LCR has confluence rkm - not sure if this is best approach
@@ -777,7 +834,7 @@ antenna <- antenna %>%#calculate km from mile, or insert NA if tributary
                                RIVER_CODE == "BAC" ~ max.rkm + 16),
          #for COR, split into 8 km reaches
          #for LCR, reach = (max COR reach) + 1
-         reach = cut(start_rkm, seq(0, 512, by = reach.km)),
+         reach = cut(start_rkm, seq(0, 520, by = reach.km)),
          reach_no = as.numeric(reach), #number for each reach
          #get start point - a numeric field is useful for graphing
          #for now, LCR has confluence rkm - not sure if this is best approach
@@ -827,7 +884,6 @@ fms <- fms %>%
 
 rm(antenna) #no longer need separate file, now it is on fish data
 
-
 #calculate n times each fish captured
 n_captures <- fms %>%
   group_by(PITTAG) %>%
@@ -837,7 +893,6 @@ n_captures <- fms %>%
 
 fms <- fms %>%
   left_join(n_captures)
-
 
 #how many fish were captured a certiain number of times?
 fms %>%
@@ -857,23 +912,46 @@ samples <- samples %>% #add year column
 #check that hoops and antennas were set for 1 day, not more
 #if set for 2 days, effort = 2
 
-samples <- samples %>%
+#Effort rules:
+# Electrofishing: 1 250m site = 1 effort
+#                 NSE (129) sites are 50m, so they are 0.2 effort each
+#Hoop nets: 1 day (e.g., overnight set) of effort = 1 effort
+#Unbaited hoops: usually set for 1 day, 2 or 3 day sets happen occasionally
+#Baited hoops: should always be set for 1 day, other values are most likely 1 day
+#              sets with date entry errors
+#Antennas: like baited hoop nets, all temp antennas should be 1 day sets
+
+
+samples <- samples %>% #get date from datetime
   mutate(start_date = as.Date(substr(as.character(START_DATETIME), 1, 10)),
          end_date = as.Date(substr(as.character(END_DATETIME), 1, 10)),
          effort_days = round(as.numeric(difftime(end_date,
                                                  start_date, units = "days"))))
-
+#look at variation in set times for each gear
 set_times <- samples %>%
   group_by(gear, effort_days) %>%
   summarize(n = n())
-#all temp antennas, baited hoop nets are n = 1 - sets over 2 days seen
-#IGNORE negative and huge numbers - are data entry errors, not monthlong sets
-#unbaited hoop nets were only things occasinally set for 2 or 3 days
-#adjust effort if needed
+
+#Create n.samples column using effort rules above
 samples <- samples %>%
-  mutate(n.samples = case_when(gear == "unbaited_hoop_net" &
-                                 effort_days >= 2 ~ effort_days,
-                               TRUE ~ n.samples))
+  mutate(n.samples = case_when(
+    #electrofishing: each sample = 1, except NSE samples (129) which = 0.2
+    gear == "boat_electrofishing" & SAMPLE_TYPE == 129 ~ 0.2,
+    gear == "boat_electrofishing" ~ 1,
+    #unbaited hoops - may be 1, 2, or 3 (days)
+    #assume any negative or very large numbers are data entry errors
+    #and are 1 day sets (1 day sets are most common)
+    gear == "unbaited_hoop_net" &  effort_days %in% c(1,2,3) ~ effort_days,
+    gear == "unbaited_hoop_net" ~ 1,
+    #baited hoops - always set for 1 night
+    gear == "baited_hoop_net" ~ 1,
+    #temporary antennas - should always set for 1 night
+    gear == "antenna_temporary" ~ 1))
+
+#summary of sample effort
+samples %>%
+  group_by(gear, n.samples) %>%
+  summarize(n = n())
 
 # add effort data from trips we don't have sample data for
 #there were 30 hoops set in BAC (location unknown, NPS does not record that)
@@ -999,11 +1077,6 @@ fms <- fms %>%
 fms <- fms %>%
   mutate(trip.gear = paste(TRIP_ID, gear_code_simplified, sep = "_"))
 
-
-#if effort is hoop net or antenna, and effort hours are between 35 and 50
-#   effort = 2
-#also do for 3 day sets
-#dont change negative and very long sets, those are date errors
 
 #save new csv file with all gear types  #######
 write.csv(fms, "./data/all_PIT_tagged_flannelmouth.csv",

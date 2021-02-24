@@ -16,18 +16,27 @@ require(dplyr)
 #       HU = unbaited hoop net
 #       AN = temp antenna
 
-#subset to only needed cols to simplify and help loop run faster
+#subset to only needed cols to simplify and help loop run faster ##########
 fms <- fms %>%
   select(trip.gear, #ID field for columns
          PITTAG, #ID field for rows
          reach_no, TL, #these will be data to fill each matrix
          TRIP_ID, season, year, gear_code_simplified, disposition) #other data
 
+# remove missing data that would mess up model #################
+# this is probably already done in load_FMS_data.r file,
+# but this is just an additional check to make sure data is good for model!
+#1. remove record if reach_no is missing
+#2. remove record if TL is missing (except for antenna data)
+#3. remove record if we do not have effort data for that trip.gear
+#      (will need to also load effort dataframe to check)
+
+
 # test with smaller dataset (subset of FMS) #############
 #can ignore this if you are running code for real
 #leaving it here because it's helpful for troubleshooting if errors occur
 
-#Make a tiny dataframe so I can practice running the loop without it being slow
+#Make a tiny dataframe so I can practice running the loop quickly
 #what PIT tags were seen the most? test with those
 tagcount <- fms %>%
   group_by(PITTAG) %>%
