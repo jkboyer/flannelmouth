@@ -3,9 +3,6 @@ Survival and movement modelling for flannelmouth sucker
 
 TO DO:
 
-check non-big boy data that PIT tags don't have extra digits
+capture histories should be good to start modelling
 
-delete NA fish if cannot find data
-delete data from wierd trips (make sure to delete fish and trip/effort data)
-
-let laura know once I rerun capture histories and upload
+I think Laura and Jan dealt with all missing data (length, mile, trip id), filling in data from other sources where we could, and deleting a few hundred records that were just missing necessary data altogether.
