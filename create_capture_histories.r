@@ -24,12 +24,21 @@ fms <- fms %>%
          TRIP_ID, season, year, gear_code_simplified, disposition) #other data
 
 # remove missing data that would mess up model #################
-# this is probably already done in load_FMS_data.r file,
+# records with NA entries should have been removed in load_FMS_data.r file,
 # but this is just an additional check to make sure data is good for model!
+
 #1. remove record if reach_no is missing
 #2. remove record if TL is missing (except for antenna data)
 #3. remove record if we do not have effort data for that trip.gear
 #      (will need to also load effort dataframe to check)
+#    ok I already did that in the load_FMS_data.r file
+
+fms <- fms %>% #remove records missing reach
+  filter(!is.na(reach_no))
+
+fms <- fms %>% #remove records missing length (except for antenna data)
+  filter(gear_code_simplified == "AN" | #keep all antenna data, it does not have length
+           !is.na(TL)) #for other gears, only keep if it has total length
 
 
 # test with smaller dataset (subset of FMS) #############

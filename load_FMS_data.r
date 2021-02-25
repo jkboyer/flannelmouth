@@ -118,7 +118,7 @@ trip.list <- paste("'", as.character(trip.ids),"'",collapse=", ",sep="")
 #query all sample data from those trips from big boy
 samples <- sqlQuery(db,
                     paste("SELECT TRIP_ID, SAMPLE_TYPE, GEAR_CODE, RIVER_CODE,",
-                          "START_RM, END_RM,",
+                          "START_RM, END_RM, START_RKM, STATION_ID,",
                           "START_DATETIME, END_DATETIME,",
                           "EF_TOTAL_SECONDS, SAMPLE_ID",
                           "FROM FISH_T_SAMPLE",
@@ -556,6 +556,28 @@ antenna <- antenna %>%
            #otherwise, keep river code unchanged
            TRUE ~ RIVER_CODE))
 
+#do the same for samples
+samples <- samples %>% #join confluence miles to fms data
+  left_join(confluences)
+
+samples <- samples %>%
+  mutate(START_RM = case_when((RIVER_CODE != "COR" &
+                                 #trib rkm is very close to confluence
+                                 (START_RKM <= trib.cutoff*1.609 |
+                                    (is.na(START_RKM) & START_RM <= trib.cutoff))) ~ confluence_RM,
+                              TRUE ~ START_RM),
+         RIVER_CODE = case_when( #reclassify as COR for tributary captures if:
+           #rkm or rm is < 0.2 miles (close to confluence)
+           RIVER_CODE != "COR" & (START_RKM <= trib.cutoff*1.609 |
+                                    (is.na(START_RKM) & START_RM <= trib.cutoff) |
+                                    #or river mile matches the appropriate tributary confluence
+                                    (RIVER_CODE == "LCR" & START_RM >= 61.3 & START_RM <= 61.4) |
+                                    (RIVER_CODE == "BAC" & START_RM >= 87.5 & START_RM <= 88.8) |
+                                    (RIVER_CODE == "SHI" & START_RM >= 108.6 & START_RM <= 109.3) |
+                                    (RIVER_CODE == "HAV" & START_RM >= 156.7 & START_RM <= 157.3)) ~ "COR",
+           #otherwise, keep river code unchanged
+           TRUE ~ RIVER_CODE))
+
 #all the 2017 agg trip shinumo nets were below waterfall,
 #and the Havasu nets were right in mouth - recode as COR
 fms <- fms %>%
@@ -563,6 +585,14 @@ fms <- fms %>%
                               TRUE ~ START_RM),
          RIVER_CODE = case_when(RIVER_CODE %in% c("HAV", "SHI") & TRIP_ID == "GC20170819" ~ "COR",
                                TRUE ~ RIVER_CODE)) %>%
+  select(-confluence_RM) #no longer needed, remove column
+
+#do the same for samples
+samples <- samples %>%
+  mutate(START_RM = case_when(RIVER_CODE %in% c("HAV", "SHI") & TRIP_ID == "GC20170819" ~ confluence_RM,
+                              TRUE ~ START_RM),
+         RIVER_CODE = case_when(RIVER_CODE %in% c("HAV", "SHI") & TRIP_ID == "GC20170819" ~ "COR",
+                                TRUE ~ RIVER_CODE)) %>%
   select(-confluence_RM) #no longer needed, remove column
 
 #Questions still remaining:
@@ -652,6 +682,13 @@ fms <- fms %>%
 # if else statement to add mile from station only if start_RM is missing
 fms$START_RM <- ifelse(!is.na(fms$START_RM), fms$START_RM, fms$mile)
 
+#and repeat for samples
+samples <- samples %>%
+  left_join(stations)
+
+# if else statement to add mile from station only if start_RM is missing
+samples$START_RM <- ifelse(!is.na(samples$START_RM), samples$START_RM, samples$mile)
+
 #how many are still missing?
 fms.missing.mile <- fms %>%
   filter(is.na(START_RM) & RIVER_CODE == "COR")
@@ -663,6 +700,9 @@ fms.missing.mile <- fms %>%
 
 fms <- fms %>% # remove mile columns from fms
   select(-mile)
+
+samples <- samples %>% # remove mile columns from fms
+  select(-mile)
 rm(lfs, mrs, lfs1, lfs2, mrs1, mrs2, stations) #no longer needed, remove
 
 # what else is missing for RMs and RKMs (inlcudes LCR, HAV, etc.)
@@ -671,7 +711,6 @@ missing.mile.tribs <- fms %>%
 # Missing location info:
 #  LCR NSE data (129): drop, Charles said NSE LCR data is weird anyway
 # BAC records - should figure out cause we don't have much BAC data
-
 
 # remove all RM = NA for where we couldn't find the RM information for COR (only 27 records) -
 # did it for RKMs for tribs as well (18 records) = 45 records
@@ -958,7 +997,8 @@ samples %>%
 #on BAC20180917
 nps.hoops.BAC <-
   data.frame(TRIP_ID = "BAC20180917", gear = "baited_hoop_net",
-             gear_code_simple = "HB", year = 2018,
+             gear_code_simple = "HB", year = 2018, reach_no = 65,
+             reach = "(512,520]", reach_start = 167.53,
              season = "fall", reach_start = NA, RIVER_CODE = "BAC",
              n.samples = 30)
 
@@ -1029,6 +1069,36 @@ n.samples.trip <- n.samples.trip %>%
 #when done, check that every fish trip/location/time has a corresponding
 #sample/effort record
 
+#do all trips have effort data?
+missing.trip.effort <- fms %>%
+  filter((TRIP_ID %in% n.samples.trip$TRIP_ID) == FALSE)
+trips.missing.effort <- unique(missing.trip.effort$TRIP_ID)
+trips.missing.effort
+#no effort for SHI20150830 trip
+#    or GC20180521 (128) baited antennas
+#    GC20180326 (128) baited antennas
+#    BAC20190521 (we just don't have this data, brian only gave me 2018)
+# 362 records of 77k, drop them
+fms <- fms %>% #remove fms with no sampling effort recorded for that trip
+  filter((TRIP_ID %in% trips.missing.effort) == FALSE)
+
+#make a combined variable for tripid, season, reach start
+fms <- fms %>%
+  mutate(id = paste(TRIP_ID, season, reach_start))
+n.samples <- n.samples %>%
+  mutate(id = paste(TRIP_ID, season, reach_start))
+
+#check if all fms records have corresponding efort for that trip/reach/season
+missing.reach.effort <- fms %>%
+  filter((id %in% n.samples$id) == FALSE)
+#only 42 missing! We did so good! I thought the data would be worse
+#42 is barely any fish, drop them
+
+reaches.missing.effort <- unique(missing.reach.effort$id)
+reaches.missing.effort
+fms <- fms %>% #remove fms with no sampling effort recorded for that reach
+  filter((id %in% reaches.missing.effort) == FALSE)
+
 # a few sample size summaries for gears ###########
 #counts of gear types with gear codes simplified/consolidated
 gear.totals <- fms %>%
@@ -1057,7 +1127,7 @@ gear.totals.unique
 gear.totals <- bind_rows(gear.totals, gear.totals.unique)
 
 #save gear totals in output
-#write.csv(gear.totals, "./output/tables/gear_totals.csv", row.names = FALSE)
+write.csv(gear.totals, "./output/tables/gear_totals.csv", row.names = FALSE)
 
 #simplify disposition codes to alive or dead #######
 unique(fms$DISPOSITION_CODE)
