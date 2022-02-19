@@ -8,6 +8,8 @@
 #Inputs: most recent version of big boy (access database)
 #Outputs: "all_PIT_tagged_flannelmouth.csv"
 #         "all_flannelmouth.csv"
+#         "effort_by_trip_reach.csv"
+#         "effort_by_trip.csv"
 #Dependencies:
 #Note: MUST USE 32-bit R (and version 1.1.x or older of Rstudio, newer versions
 #      of Rstudio only run 64-bit R) to use RODBC to connect to access database
@@ -17,7 +19,7 @@
 library(RODBC) #database interface
 library(tidyverse)
 library(lubridate) #need this for date transformation
-
+library(data.table)
 theme_set(theme_minimal()) #override ugly default ggplot theme
 
 #load some metric/english conversion fuctions I wrote
@@ -38,7 +40,7 @@ end.fall <- strftime(as.POSIXct("2000-10-31"))
 gear.types.keep <- c("boat_electrofishing", "baited_hoop_net",
                      "unbaited_hoop_net", "antenna_temporary")
 
-#length of reach used to bin data for cauchy distribution
+#length of reach used to bin data for Cauchy distribution
 reach.km = 8
 
 #size break - dividing point between adult and subadult (in mm)
@@ -56,7 +58,7 @@ gcmrc.file.path <- "C:/Users/ltennant/Desktop/FMS_mark_recap/"
 #Jan's work file path
 #gcmrc.file.path <- "\\\\flag-server/Office/GCMRC_master_database/"
 #Jan's coronavirus work from home filepath
-gcmrc.file.path <- "C:/Users/jboyer/Documents/big_boy/"
+gcmrc.file.path <- "C:/Users/jboyer/Documents/local_server_folder/GCMRC_master_database/"
 
 #connect to database
 db <- odbcConnectAccess(paste(gcmrc.file.path, db.GCMRC, sep = ""))
@@ -398,6 +400,71 @@ fms %>%
 #tags with 14 digits are new tags
 #others are errors or missing digits - low enough numbers, just drop them.
 
+#############AAAAAAAAAAAAAAHHHHHHHHHHH
+#### why is the data so messy!
+### WTF is up with GC20140903
+### why is the park service data so confusing
+
+
+#Remove GC20140903: It seems to be a catch-all where missing ###################
+# data from several trips over 4 years was entered
+samples <- samples %>%
+  filter(TRIP_ID != "GC20140903")
+fms <- fms %>%
+  filter(TRIP_ID != "GC20140903")
+
+
+# fix errors causing problems with effort calculations #########################
+# fix date and TRIP_ID errors #
+# These are causing errors in effort calculations by assigning samples to the
+#BAC has some "real" data that throws errors - trips ran over new year so ok
+#change year in date to year from trip id for errors NOT from BAC trips
+fms <- fms %>%
+  mutate(corrected.date = if_else(
+    #if isn't BAC (wierd anyway) or old trip (short trip id)
+    substr(TRIP_ID, 1, 3) != "BAC" &
+    nchar(TRIP_ID) >= 10 &
+      #and the year in trip id does not match year in date
+    substr(stringr::str_extract(TRIP_ID, "\\d+"), 1, 4) != substr(as.character(START_DATETIME), 1, 4),
+    #then replace year in date with year extracted from trip id
+    paste0(substr(stringr::str_extract(TRIP_ID, "\\d+"), 1, 4), #year
+                      substr(as.character(START_DATETIME), 5, 19)), #rest of date
+    #else (for all others just keep original date)
+    as.character(START_DATETIME))) %>%
+  mutate(corrected.date = as.POSIXct(corrected.date)) %>%
+  mutate(START_DATETIME = corrected.date) %>%
+  select(-corrected.date)
+
+samples <- samples %>%
+  mutate(corrected.date = if_else(
+    #if isn't BAC (wierd anyway) or old trip (short trip id)
+    substr(TRIP_ID, 1, 3) != "BAC" &
+      nchar(TRIP_ID) >= 10 &
+      #and the year in trip id does not match year in date
+      substr(stringr::str_extract(TRIP_ID, "\\d+"), 1, 4) != substr(as.character(START_DATETIME), 1, 4),
+    #then replace year in date with year extracted from trip id
+    paste0(substr(stringr::str_extract(TRIP_ID, "\\d+"), 1, 4), #year
+           substr(as.character(START_DATETIME), 5, 19)), #rest of date
+    #else (for all others just keep original date)
+    as.character(START_DATETIME))) %>%
+  mutate(corrected.date = as.POSIXct(corrected.date)) %>%
+  mutate(START_DATETIME = corrected.date) %>%
+  select(-corrected.date)
+
+
+# fix gear code errors
+# i.e. 1 baited hoop in a trip with 500+ unbaited hoops is a typo
+fms <- fms %>%
+  mutate(GEAR_CODE = case_when(
+    TRIP_ID == "LC20040426" & GEAR_CODE == "HB" ~ "HS",
+    TRUE ~ GEAR_CODE))
+
+samples <- samples %>%
+  mutate(GEAR_CODE = case_when(
+    TRIP_ID == "LC20040426" & GEAR_CODE == "HB" ~ "HS",
+    TRUE ~ GEAR_CODE))
+
+
 # get year from datetime
 fms <- fms %>%
   mutate(year = substr(as.character(START_DATETIME), 1, 4))
@@ -478,7 +545,7 @@ fms <- fms %>%
 #save all FMS (including not tagged) to examine size structure, size at maturity
 write.csv(fms, "./data/all_flannelmouth.csv", row.names = FALSE)
 
-#subset to only PIT tagged fish captured since start year (2004) ######
+#subset to only PIT tagged fish captured since start year (2004) ###############
 fms <- fms %>%
   filter(!is.na(PITTAG) & #remove non tagged fish
           length.tag == 14) %>% #new tags have 14 digits
@@ -615,7 +682,7 @@ tribs %>%
 
 rm(confluences, fms.lengths, tribs, lm.FL.to.TL, lm.TL.to.FL) # no longer needed, remove
 
-# a mechanical removal trip with many records is missing river mile ########
+# a mechanical removal trip with many records is missing river mile ############
 # load table with river miles of station and merge
 #grab mechanical removal stations from Big Boy to work on fixing reach data
 
@@ -724,7 +791,7 @@ fms <- fms %>%  #only keep mainstem records if they have river mile
 fms.missing.mile <- fms %>%
   filter(is.na(START_RM) & is.na(START_RKM))
 
-#Also remove fish that are missing length
+#Also remove fish that are missing total length
 fms.missing.length <- fms %>%
   filter(is.na(TL))
 #only 174 fish and they are missing fork lengths too - just drop the data
@@ -933,7 +1000,7 @@ n_captures <- fms %>%
 fms <- fms %>%
   left_join(n_captures)
 
-#how many fish were captured a certiain number of times?
+#how many fish were captured a certain number of times?
 fms %>%
   group_by(n_captures) %>%
   summarize(n = n()) %>%
@@ -957,7 +1024,7 @@ samples <- samples %>% #add year column
 #Hoop nets: 1 day (e.g., overnight set) of effort = 1 effort
 #Unbaited hoops: usually set for 1 day, 2 or 3 day sets happen occasionally
 #Baited hoops: should always be set for 1 day, other values are most likely 1 day
-#              sets with date entry errors
+#              sets with date data entry errors
 #Antennas: like baited hoop nets, all temp antennas should be 1 day sets
 
 
@@ -1017,18 +1084,37 @@ samples <- samples %>%
          #switch river code to COR
          RIVER_CODE = case_when(RIVER_CODE %in% c("SHI", "HAV") ~ "COR",
                                 TRUE ~ RIVER_CODE))
+#DROP any samples missing river mile (reach)
+samples <- samples %>%
+  filter(!is.na(reach_start))
+
+
+#Drop any flannies missing river mile
+fms <- fms %>%
+  filter(!is.na(reach_start))
+
 #make combined trip/gear variable
 samples <- samples %>%
   mutate(trip.gear = paste(TRIP_ID, gear_code_simplified, sep = "_"))
 
 #effort by trip, year, season, 8km reach
+#add a date
 n.samples <- samples %>%
   group_by(TRIP_ID,  gear, season, year, reach_start, RIVER_CODE) %>%
   summarize(n = sum(n.samples))
 
+
 n.samples <- n.samples %>%
   pivot_wider(names_from = gear, values_from = n,
               values_fill = list(n = 0)) #fill with zero if is NA
+
+#calculate median date by reach and trip (will later be used to join temperature data)
+date.samples <- samples %>%
+  group_by(TRIP_ID,  season, year, reach_start, RIVER_CODE) %>%
+  summarize(sampling.date = median(start_date, na.rm = TRUE))
+
+
+n.samples <- n.samples %>% left_join(date.samples)
 
 #effort by trip, year, season (no reach grouping)
 n.samples.trip <- samples %>%
@@ -1048,6 +1134,7 @@ n.samples.trip <- n.samples.trip %>%
   left_join(antenna.effort.trip) %>%
   mutate(antenna.effort.calc = as.numeric(antenna.effort.calc))
 
+
 #check that there is no overlap (number in antenna temporary or n, not both)
 #move n (calculated antenna effort) into antenna temporary colulmn
 n.samples <- n.samples %>%
@@ -1064,8 +1151,9 @@ n.samples.trip <- n.samples.trip %>%
     antenna_temporary == 0 & !is.na(antenna.effort.calc) ~ antenna.effort.calc,
     #otherwise, keep antenna_temporary effort count
     TRUE ~ antenna_temporary)) %>%
-  select(-antenna.effort.calc) #no longer needed, remove
-
+  select(-antenna.effort.calc) %>% #no longer needed, remove
+  mutate(total.samples = baited_hoop_net + unbaited_hoop_net +
+           boat_electrofishing + antenna_temporary)
 #when done, check that every fish trip/location/time has a corresponding
 #sample/effort record
 
@@ -1147,6 +1235,23 @@ fms <- fms %>%
 fms <- fms %>%
   mutate(trip.gear = paste(TRIP_ID, gear_code_simplified, sep = "_"))
 
+# Find the mean/median spring and fall sample date
+#convert dates to day-of-year
+samples <- samples %>%
+  mutate(doy = yday(START_DATETIME))
+
+samples %>%
+  ggplot(aes(x = doy, fill = season)) +
+  scale_x_continuous(breaks = seq(0,350, by = 20)) +
+  geom_histogram(binwidth = 7)
+
+
+#find median, find mean
+#which one best captures what we see in graph?
+samples %>%
+  group_by(season) %>%
+  summarize(mean.day.of.year = mean(doy, na.rm = TRUE),
+            med.day.of.year = median(doy, na.rm = TRUE))
 
 #save new csv file with all gear types  #######
 write.csv(fms, "./data/all_PIT_tagged_flannelmouth.csv",
