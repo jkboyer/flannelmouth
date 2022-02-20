@@ -86,7 +86,6 @@ colnames(fms.reach) <- c(unique(fms.test$trip.gear), "disposition")
 #j: PITTAG (individual fish)
 #k: each record for the fish
 
-#first loop works, error is in second
 
 #for each PITTAG in the unique PITTAGs in fms dataframe
 for (j in 1:length(unique(fms.test$PITTAG))){
@@ -163,7 +162,6 @@ colnames(fms.reach) <- c(unique(fms$trip.gear), "disposition")
 #j: PITTAG (individual fish)
 #k: each record for the fish
 
-#first loop works, error is in second
 
 #for each PITTAG in the unique PITTAGs in fms dataframe
 for (j in 1:length(unique(fms$PITTAG))){
@@ -205,6 +203,9 @@ for (j in 1:length(unique(fms$PITTAG))){
     fms.TL[j, n.trips.gears + 1] <- tm
   }
 }
+
+#If loops ran successfully, save workspace
+#save.image(file = "./capture_histories.RData")
 
 #save capture histories
 write.csv(fms.reach, "./data/FMS_capture_history_reach.csv")
