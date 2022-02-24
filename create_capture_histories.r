@@ -16,18 +16,36 @@ require(dplyr)
 #       HU = unbaited hoop net
 #       AN = temp antenna
 
-#subset to only needed cols to simplify and help loop run faster
+#subset to only needed cols to simplify and help loop run faster ##########
 fms <- fms %>%
   select(trip.gear, #ID field for columns
          PITTAG, #ID field for rows
          reach_no, TL, #these will be data to fill each matrix
          TRIP_ID, season, year, gear_code_simplified, disposition) #other data
 
+# remove missing data that would mess up model #################
+# records with NA entries should have been removed in load_FMS_data.r file,
+# but this is just an additional check to make sure data is good for model!
+
+#1. remove record if reach_no is missing
+#2. remove record if TL is missing (except for antenna data)
+#3. remove record if we do not have effort data for that trip.gear
+#      (will need to also load effort dataframe to check)
+#    ok I already did that in the load_FMS_data.r file
+
+fms <- fms %>% #remove records missing reach
+  filter(!is.na(reach_no))
+
+fms <- fms %>% #remove records missing length (except for antenna data)
+  filter(gear_code_simplified == "AN" | #keep all antenna data, it does not have length
+           !is.na(TL)) #for other gears, only keep if it has total length
+
+
 # test with smaller dataset (subset of FMS) #############
 #can ignore this if you are running code for real
 #leaving it here because it's helpful for troubleshooting if errors occur
 
-#Make a tiny dataframe so I can practice running the loop without it being slow
+#Make a tiny dataframe so I can practice running the loop quickly
 #what PIT tags were seen the most? test with those
 tagcount <- fms %>%
   group_by(PITTAG) %>%
@@ -68,7 +86,6 @@ colnames(fms.reach) <- c(unique(fms.test$trip.gear), "disposition")
 #j: PITTAG (individual fish)
 #k: each record for the fish
 
-#first loop works, error is in second
 
 #for each PITTAG in the unique PITTAGs in fms dataframe
 for (j in 1:length(unique(fms.test$PITTAG))){
@@ -145,7 +162,6 @@ colnames(fms.reach) <- c(unique(fms$trip.gear), "disposition")
 #j: PITTAG (individual fish)
 #k: each record for the fish
 
-#first loop works, error is in second
 
 #for each PITTAG in the unique PITTAGs in fms dataframe
 for (j in 1:length(unique(fms$PITTAG))){
@@ -187,6 +203,9 @@ for (j in 1:length(unique(fms$PITTAG))){
     fms.TL[j, n.trips.gears + 1] <- tm
   }
 }
+
+#If loops ran successfully, save workspace
+#save.image(file = "./capture_histories.RData")
 
 #save capture histories
 write.csv(fms.reach, "./data/FMS_capture_history_reach.csv")
