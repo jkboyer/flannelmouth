@@ -11,21 +11,22 @@
 #         "effort_by_trip_reach.csv"
 #         "effort_by_trip.csv"
 #Dependencies:
-#Note: MUST USE 32-bit R (and version 1.1.x or older of Rstudio, newer versions
-#      of Rstudio only run 64-bit R) to use RODBC to connect to access database
-#      in Rstudio Tools/Global Options/General, click change button by R version
+
+#Updates TO DO:
+# 1. remove code dealing with data that we decided to drop (bright angel)
+# 2. Use functions Jan's grandcanyonfish package to do river mile
+#    calculations
 
 #setup: load packages, data, define subsetting criteria #######################
 library(RODBC) #database interface
 library(tidyverse)
 library(lubridate) #need this for date transformation
 library(data.table)
+#remotes::install_github("jkboyer/grandcanyonfish")
+library(grandcanyonfish) # on github only, run line above to install if needed
 theme_set(theme_minimal()) #override ugly default ggplot theme
 
-#load some metric/english conversion fuctions I wrote
-source("./functions/conversion_functions.r")
-
-#define cutoffs to use for subsetting data
+#define cutoffs to use for subsetting data #####################################
 start.year <- 2004
 
 #season cutoffs - will make pretend 2000-mm-dd datetime to subset
@@ -469,66 +470,7 @@ samples <- samples %>%
 fms <- fms %>%
   mutate(year = substr(as.character(START_DATETIME), 1, 4))
 
-# If missing total length, calculate from fork length, and vice versa #####
-# calculate coefficients
-fms.lengths <- fms %>% #subset to fish with both lengths
-  filter(!is.na(TOTAL_LENGTH) & !is.na(FORK_LENGTH))
-
-#look at length data: TL vs. FL
-fms.lengths %>%
-  ggplot(aes(x = TOTAL_LENGTH, y = FORK_LENGTH)) +
-  geom_point(alpha = 0.1) +
-  stat_smooth(method = "lm")
-#apparently there are some measurement errors
-
-#fit linear models
-#predict fork length from total length
-lm.TL.to.FL <- lm(FORK_LENGTH ~ TOTAL_LENGTH, data = fms.lengths)
-summary(lm.TL.to.FL)
-lm.FL.to.TL <- lm(TOTAL_LENGTH ~ FORK_LENGTH, data = fms.lengths)
-summary(lm.FL.to.TL)
-
-#extract coefficients for fork-total length equations
-TLtoFL.intercept <- summary(lm.TL.to.FL)$coef["(Intercept)", "Estimate"]
-TLtoFL.slope <- summary(lm.TL.to.FL)$coef["TOTAL_LENGTH", "Estimate"]
-FLtoTL.intercept <- summary(lm.FL.to.TL)$coef["(Intercept)", "Estimate"]
-FLtoTL.slope <- summary(lm.FL.to.TL)$coef["FORK_LENGTH", "Estimate"]
-
-#calculate predicted fork length
-fms.lengths <- fms.lengths %>%
-  mutate(predicted.TL = FLtoTL.intercept + FLtoTL.slope*FORK_LENGTH,
-         TL.difference = abs(TOTAL_LENGTH - predicted.TL),
-         predicted.FL = TLtoFL.intercept + TLtoFL.slope*TOTAL_LENGTH,
-         FL.difference = abs(FORK_LENGTH - predicted.FL))
-
-#remove obviously incorrect values
-#use graph below and adjust values until it seems measurement errors or species
-#code errors have been removed
-
-fms.lengths <- fms.lengths %>%
-  filter(TL.difference < 25 & FL.difference < 25)
-
-#graph, see if I picked the right value above to exclude measurement/species
-#errors but keep all real flannelmouths
-fms.lengths %>%
-  ggplot(aes(x = TOTAL_LENGTH, y = FORK_LENGTH, color = FL.difference)) +
-  geom_point(size = 0.75) +
-  scale_color_viridis_c()
-
-#recalculate coeeficients with subsetted data
-#fit linear models
-#predict fork length from total lenght
-lm.TL.to.FL <- lm(FORK_LENGTH ~ TOTAL_LENGTH, data = fms.lengths)
-summary(lm.TL.to.FL)
-lm.FL.to.TL <- lm(TOTAL_LENGTH ~ FORK_LENGTH, data = fms.lengths)
-summary(lm.FL.to.TL)
-
-#extract coefficients
-TLtoFL.intercept <- summary(lm.TL.to.FL)$coef["(Intercept)", "Estimate"]
-TLtoFL.slope <- summary(lm.TL.to.FL)$coef["TOTAL_LENGTH", "Estimate"]
-FLtoTL.intercept <- summary(lm.FL.to.TL)$coef["(Intercept)", "Estimate"]
-FLtoTL.slope <- summary(lm.FL.to.TL)$coef["FORK_LENGTH", "Estimate"]
-
+# calculate missing fish lengths ###############
 #for all fish - if total length is missing, calculate from fork
 #               if fork length missing, calculate from total
 fms <- fms %>%
@@ -536,10 +478,10 @@ fms <- fms %>%
          TOTAL_LENGTH = as.numeric(TOTAL_LENGTH)) %>%
   #if length is missing, calculate from other length, if length exists keep it
   mutate(TL = case_when(is.na(TOTAL_LENGTH) ~
-                          round(FLtoTL.intercept + FLtoTL.slope*FORK_LENGTH, 0),
+                         fork_to_total("FMS", FORK_LENGTH),
                         TRUE ~ TOTAL_LENGTH),
          FL = case_when(is.na(FORK_LENGTH) ~
-                          round(TLtoFL.intercept + TLtoFL.slope*TOTAL_LENGTH, 0),
+                          total_to_fork("FMS", TOTAL_LENGTH),
                         TRUE ~ FORK_LENGTH))
 
 #save all FMS (including not tagged) to examine size structure, size at maturity
@@ -1252,6 +1194,16 @@ samples %>%
   group_by(season) %>%
   summarize(mean.day.of.year = mean(doy, na.rm = TRUE),
             med.day.of.year = median(doy, na.rm = TRUE))
+
+#save a list of reaches (including river code)
+reaches <- samples %>%
+  select(reach_no, reach, reach_start, RIVER_CODE) %>%
+  arrange(reach_no) %>%
+  unique() %>%
+  filter(!is.na(reach_no))
+
+write.csv(reaches, "./data/reaches_8km.csv",
+          row.names = FALSE)
 
 #save new csv file with all gear types  #######
 write.csv(fms, "./data/all_PIT_tagged_flannelmouth.csv",
