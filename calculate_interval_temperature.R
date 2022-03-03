@@ -1,7 +1,8 @@
-#IN PROGRESS NOT COMPLETE
-
 # Calculate mean temperature in each interval and reach
 library(tidyverse)
+library(grandcanyonfish)
+library(data.table) #for day of year function
+
 
 #define list of reaches
 #define list of time intervals
@@ -34,17 +35,32 @@ reaches <- reaches %>%
 reaches <- reaches %>%
   arrange(reach_start)
 
-
 #temp tiny dataframe to test loop on
 #n.samples <- n.samples[seq(2, 1051, by = 50),]
 
 #loop to calculate temperature
 #vector of unique nets and dates
-sample.kms <- n.samples$reach_start
-sample.dates <- n.samples$sampling.date
+reach.midpoints <- reaches$reach_middle
+all.dates <- all.dates
+
+#dataframe with all possibilities
+all.df <- data.frame(reach.midpoints = rep(reach.midpoints, each = length(all.dates)),
+  date = rep(all.dates, length(reach.midpoints)))
+
+reach.midpoints <- all.df$reach.midpoints
+all.dates <- all.df$date
+
+
+#temp tiny vectors to test loop on
+#reach.midpoints <- reach.midpoints[seq(2, 300001, by = 1000)]
+#all.dates <- all.dates[seq(seq(2, 300001, by = 1000))]
+
+#sample.dates = all.dates
+#sample.kms = reach.midpoints
+#sample.temperatures = midpoint.temperatures
 
 #blank df to store values created by loop
-sample.temperatures <- data.frame(reach_start = as.numeric(),
+midpoint.temperatures <- data.frame(reach_middle = as.numeric(),
                                   sampling.date = as.Date(as.character()),
                                   water.temp = as.numeric())
 
@@ -52,25 +68,24 @@ sample.temperatures <- data.frame(reach_start = as.numeric(),
 temp.daily <- temp.daily %>%
   arrange(rkm)
 
+#I think now it is set up to get just one date, need to do all dates
+for (i in seq_along(reach.midpoints)) {
 
-for (i in seq_along(sample.kms)) {
-
-  print(sample.kms[[i]]) #print net location/date
-  print(sample.kms[[i]])
+  print(reach.midpoints[[i]]) #print net location/date
   #1.find closest upstream and closest downstream gauge on given date
   #make temp df subset to that date
   temperature <- temp.daily %>%
-    filter(date == sample.dates[i] & site.name != "LCR")
+    filter(date == all.dates[i] & site.name != "LCR")
 
   #make temp upstream gauge df
   gauges <- data.frame(up = temperature$rkm,
                        down = lead(temperature$rkm))
-  upstream.gauge <- gauges$up[findInterval(sample.kms[i], gauges$up)]
+  upstream.gauge <- gauges$up[findInterval(reach.midpoints[i], gauges$up)]
   upstream <- temperature %>%
     filter(rkm == upstream.gauge)
 
   #make temp downstream gauge df
-  downstream.gauge <- gauges$down[findInterval(sample.kms[i], gauges$up)]
+  downstream.gauge <- gauges$down[findInterval(reach.midpoints[i], gauges$up)]
   downstream <- temperature %>%
     filter(rkm == downstream.gauge)
 
@@ -81,38 +96,65 @@ for (i in seq_along(sample.kms)) {
   predict.temp <- upstream$temp.c.daily +
     ((downstream$temp.c.daily - upstream$temp.c.daily)/
        (downstream$rkm -
-          upstream$rkm))*(sample.kms[i] - upstream$rkm)
+          upstream$rkm))*(reach.midpoints[i] - upstream$rkm)
 
-  reach_start = sample.kms[i]
-  sampling.date = as.Date(sample.dates[i])
+  reach_middle = reach.midpoints[i]
+  sampling.date = as.Date(all.dates[i])
 
 
-  temp.i <- data.frame(reach_start,
+  temp.i <- data.frame(reach_middle,
                        sampling.date,
                        water.temp = round(predict.temp, 2))
 
-  sample.temperatures <- bind_rows(sample.temperatures, temp.i) #bind onto one dataframe
+  midpoint.temperatures <- bind_rows(midpoint.temperatures, temp.i) #bind onto one dataframe
 
 }
 
-#bind temperatures to colorado data
-n.samples <- n.samples %>%
-  left_join(sample.temperatures)
+#write.csv(midpoint.temperatures, "./data/midpoint_temperatures.csv",
+ #         row.names = FALSE)
+midpoint.temperatures <- read_csv("./data/midpoint_temperatures.csv")
 
-#LCR - just assign temp from LCR gauge by date
+midpoint.temperatures <- midpoint.temperatures %>%
+  left_join(reaches)
+
+#join on LCR data
 lcr.temp <- temp.daily %>%
   filter(site.name == "LCR") %>%
-  mutate(sampling.date = date,
-         water.temp = temp.c.daily) %>%
-  select(sampling.date, water.temp)
+  transmute(sampling.date = date,
+         water.temp = temp.c.daily,
+         RIVER_CODE = site.name) %>%
+  filter(sampling.date %in% all.dates) %>%
+  left_join(reaches.LCR)
 
-n.samples.LCR <- n.samples.LCR %>%
-  left_join(lcr.temp)
+midpoint.temperatures <- midpoint.temperatures %>%
+  bind_rows(lcr.temp)
 
-#join LCR, COR, BAC back together
-n.samples <- bind_rows(n.samples, n.samples.LCR, n.samples.BAC)
 
-write.csv(n.samples, "./data/effort_by_trip_reach_with_temperature.csv",
+#Assign interval variable
+midpoint.temperatures <- midpoint.temperatures %>%
+  mutate(doy = yday(sampling.date),
+         year = as.numeric(format(sampling.date, format = "%Y")))
+
+midpoint.temperatures <- midpoint.temperatures %>%
+  mutate(interval_start = case_when(
+    doy < 122 ~ paste0((year - 1), "-09-23"),
+    doy >= 122 & doy < 266 ~ paste0((year), "-05-02"),
+    doy >= 266 ~ paste0((year), "-09-23")))
+
+unique(midpoint.temperatures$interval_start)
+
+midpoint.temperatures %>%
+  filter(reach_middle == 4 & year > 2015) %>%
+ggplot( aes(x = sampling.date, y = interval_start)) +
+  geom_point()
+
+
+#group by reach, interval and calculate mean
+interval.temperatures <- midpoint.temperatures %>%
+  group_by(RIVER_CODE, reach_no, reach, reach_start, interval_start) %>%
+  summarise(temp_interval = mean(water.temp, na.rm = TRUE))
+
+write.csv(interval.temperatures, "./data/mean_temperature_by_reach_and_time_interval.csv",
           row.names = FALSE)
 
 

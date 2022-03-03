@@ -19,7 +19,7 @@ theme_set(theme_minimal())
 #spencer:    RM 246  09404220
 
 #
-file.names <- list.files(path="./data/raw/temperature")
+file.names <- list.files(path="./data/water_quality_stream_gauge/temperature/")
 
 #Create list of data frame names without the ".csv" part
 gauge.names <- gsub(".tsv", "", file.names)
@@ -28,7 +28,7 @@ gauge.names <- gsub(".tsv", "", file.names)
 #Load all files
 for(i in gauge.names){
   col.names <- c("datetime", "temp.c")
-  filepath <- file.path("./data/raw/temperature", paste0(i, ".tsv"))
+  filepath <- file.path("./data/water_quality_stream_gauge/temperature/", paste0(i, ".tsv"))
   assign(i, read.delim(filepath,
                        col.names = c("datetime", "temp.c"),
                        stringsAsFactors = FALSE))
@@ -45,14 +45,18 @@ phantom$site.name <- "phantom"
 rm127$site.name <- "rm127"
 rm30$site.name <- "rm30"
 spencer$site.name <- "spencer"
+LCR$site.name <- "LCR"
 
 #join data from all gauges
 temp.actual <- bind_rows(aboveLCR, belowLCR, diamond, glencanyondam,
-                     leesferry, national, phantom, rm127, rm30, spencer)
+                     leesferry, national, phantom, rm127, rm30, spencer, LCR)
+#remove turbidity
+temp.actual <- temp.actual %>%
+  select(datetime, site.name, temp.c)
 
 #give data river miles
 rm(aboveLCR, belowLCR, diamond, glencanyondam,
-      leesferry, national, phantom, rm127, rm30, spencer)
+      leesferry, national, phantom, rm127, rm30, spencer, LCR)
 
 miles <- data.frame(site.name = c("glencanyondam", "leesferry", "rm30",
                              "aboveLCR", "belowLCR", "phantom", "rm127",
@@ -61,11 +65,13 @@ miles <- data.frame(site.name = c("glencanyondam", "leesferry", "rm30",
                                   61, 66, 88, 128,
                                   167, 225, 246))
 
-temp.actual <- right_join(temp.actual, miles)
+temp.actual <- temp.actual %>%
+  left_join(miles)
 
 #USGS gauges use -999 for NA - WHY?!
 #fix that terribleness
 temp.actual$temp.c <- ifelse(temp.actual$temp.c == -999, NA, temp.actual$temp.c)
+temp.actual$temp.c <- ifelse(temp.actual$temp.c == 999, NA, temp.actual$temp.c)
 
 #aggregate to daily means
 temp.daily <- temp.actual %>%
@@ -103,12 +109,14 @@ temp.daily %>%
   group_by(rivermile) %>%
   summarize(last.date = max(date)) %>%
   arrange(last.date)
-#just remove 2019
+#just remove 2021-22
+#NOTE: NA values are fine, they are LCR which does not have a COR river mile
 
 temp.daily <- temp.daily %>%
-  filter(date < as.Date("2019-01-01"))
+  filter(date < as.Date("2021-01-01"))
 
 #to estimate temperature at pearce, assume same slope as diamond to spencer
+#This is actually below Pearce, to make sure all is included
 pearce <- temp.daily %>%
   filter(rivermile %in% c(167, 225, 246)) %>%
   ungroup() %>%
@@ -127,18 +135,36 @@ pearce <- temp.daily %>%
             rivermile = 281,
             site.name = "pearceferry")
 
+below.pearce <- temp.daily %>%
+  filter(rivermile %in% c(167, 225, 246)) %>%
+  ungroup() %>%
+  select(-rivermile) %>%
+  pivot_wider(names_from = site.name, values_from = temp.c.daily) %>%
+  #estimate temp at pearce from spencer and diamond gauges
+  mutate(belowpearce = case_when(!is.na(spencer) ~
+                              spencer + ((spencer - diamond)/(246 - 225))*(295 - 246),
+                            #spencer gauge was offline for some of 2018.
+                            #for those months, estimate pearce from diamond
+                            is.na(spencer) ~
+                              diamond + ((diamond - national)/(225 - 167))*(295 - 226))) %>%
+  select(date, belowpearce) %>%
+  transmute(date = date,
+            temp.c.daily = belowpearce,
+            rivermile = 295,
+            site.name = "belowpearce")
+
 #join pearce ferry estimates to other data
 temp.daily <- temp.daily %>%
-  bind_rows(pearce) %>%
-  mutate(data.type = case_when(rivermile == 281 ~ "Estimated",
-                               TRUE ~ "Measured"))
+  bind_rows(pearce)
 
-#add year, month, day of year etc.
 temp.daily <- temp.daily %>%
-  mutate(year = as.numeric(format(date, "%Y")),
-         month = as.numeric(format(date, "%m")),
-         day.of.year = as.Date(paste0("2000-", format(date, "%m-%d"))),
-         id = paste(site.name, date))
+  bind_rows(below.pearce)
+
+#convert rm to rkm
+library(grandcanyonfish)
+temp.daily <- temp.daily %>%
+  mutate(rkm = mile_to_km_COR(rivermile)) %>%
+  select(-rivermile)
 
 
 write.csv(temp.daily, "./data/temperature.csv", row.names = FALSE)
