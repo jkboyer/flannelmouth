@@ -668,6 +668,8 @@ fms.missing.length <- fms %>%
 fms <- fms %>%
   filter(!is.na(TL))
 
+rm(fms.missing.length, fms.missing.mile)
+
 # calculate sampling effort ###################################################
 #data has T on end of trip code cause was uploaded separately -
 #but is same trip, so remove T
@@ -845,6 +847,11 @@ samples <- samples %>%
 
 antenna <- antenna %>%
   mutate(STATION_ID = as.character(STATION_ID))
+
+#make sure antenna has year, etc.
+antenna <- antenna %>%
+  mutate(year = case_when(is.na(year) ~ as.numeric(year(START_DATETIME)),
+                          TRUE ~ year))
 
 #merge antenna data onto fms data ########
 fms <- fms %>%
@@ -1028,6 +1035,8 @@ reaches.missing.effort
 fms <- fms %>% #remove fms with no sampling effort recorded for that reach
   filter((id %in% reaches.missing.effort) == FALSE)
 
+rm(missing.mile.tribs, missing.reach.effort, missing.trip.effort)
+
 # a few sample size summaries for gears ###########
 #counts of gear types with gear codes simplified/consolidated
 gear.totals <- fms %>%
@@ -1069,6 +1078,68 @@ fms <- fms %>%
     DISPOSITION_CODE %in% c("DR", "DC", "DP", "TA") ~"dead"),
     size.class = case_when(TL < size.break ~ 1,
                      TL >= size.break ~ 2))
+
+# deal with fish captured twice in one time period - cause errors in model
+# subset to only first detection
+#year, season, reach are important variables here
+bad.pits <- read.csv("./data/badpits.csv")
+
+bad.pits <- bad.pits %>%
+  left_join(fms) %>%
+  mutate(time.period = paste(year, season),
+         pit.time.period = paste(PITTAG, year, season)) %>%
+  arrange(PITTAG, START_DATETIME)
+
+#what trips
+bad.pits %>%
+  group_by(SAMPLE_TYPE) %>%
+  summarize(n = n()) %>%
+  arrange(-n)
+
+#vector of unique pit-year-season groups
+pit.groups <- unique(bad.pits$pit.time.period)
+
+#blank dataframe with same columns as bad.pits
+corrected.pits <- bad.pits[FALSE, ]
+
+#Charles, I know a loop might not be the most efficient way to do this... but
+# it's only ~2000 records, runs in 10 seconds, and works fine.
+# if it's existence bothers you feel free to edit though.
+
+for (i in seq_along(pit.groups)) {
+  #dataframe of only this pit time group
+  df <- bad.pits %>% filter(pit.time.period == pit.groups[i])
+
+  #if there is antenna data and actual capture data, drop antenna data
+  gears <- unique(df$gear_code_simplified)
+
+  print(pit.groups[i])
+  print(gears)
+
+  #if antenna data and actual capture data present, drop antenna data (no length)
+  if ("AN" %in% gears & ("HB" %in% gears | "HU" %in% gears | "EL" %in% gears)){
+    df <- df %>% filter(gear_code_simplified != "AN")
+  #for groups that still have >1 record, just keep first record
+  } else {
+    df <- df
+  }
+
+  #now, subset every group to only it's first record
+  df <- df[1,]
+
+  #and bind into new table of corrected pit tags
+  corrected.pits <- corrected.pits %>% bind_rows(df)
+}
+
+#remove bad pits from fms, then rejoin on corrected pits
+fms <- fms %>%
+  filter(PITTAG %in% bad.pits$PITTAG == FALSE)
+
+corrected.pits <- corrected.pits %>%
+  select(-c(time.period, pit.time.period, detections.time))
+
+fms <- fms %>%
+  bind_rows(corrected.pits)
 
 #add a variable for trip and gear combined
 #this is the metric we will make capture histories on
