@@ -1099,22 +1099,64 @@ bad.pits %>%
 #vector of unique pit-year-season groups
 pit.groups <- unique(bad.pits$pit.time.period)
 
-#blank dataframe with same columns as bad.pits
-corrected.pits <- bad.pits[FALSE, ]
-
 #Charles, I know a loop might not be the most efficient way to do this... but
 # it's only ~2000 records, runs in 10 seconds, and works fine.
 # if it's existence bothers you feel free to edit though.
+
+# make empty data frame to fill with data on if fish was caught in multiple reaches
+n.reaches.df <- data.frame(
+  matrix(ncol = 2, nrow = 0,
+         dimnames = list(NULL, c("pit.time.period", "n.reaches"))))
 
 for (i in seq_along(pit.groups)) {
   #dataframe of only this pit time group
   df <- bad.pits %>% filter(pit.time.period == pit.groups[i])
 
-  #if there is antenna data and actual capture data, drop antenna data
-  gears <- unique(df$gear_code_simplified)
+  print(pit.groups[i])
+
+  #determine if fish was caught
+  # multiple times in a single reach (can keep all records)
+  # or in different reaches (will need to drop some records)
+  n.reaches <- length(unique(df$reach))
+  print(n.reaches)
+
+  reaches.df <- data.frame(pit.time.period = pit.groups[i],
+                           n.reaches = n.reaches)
+  n.reaches.df <- rbind(n.reaches.df, reaches.df)
+
+}
+
+bad.pits <- bad.pits %>%
+  left_join(n.reaches.df)
+
+#how many moved reaches?
+bad.pits %>%
+  group_by(n.reaches) %>%
+  summarise(n = n())
+# 1819 stayed in 1 reach (keep), 229 moved (drop)
+
+# filter bad pits df to only fish detected in >1 reach in a season
+bad.pits <- bad.pits %>%
+  filter(n.reaches > 1)
+
+
+#blank dataframe with same columns as bad.pits
+corrected.pits <- bad.pits[FALSE, ]
+
+
+# remove records for fish caught in multiple reaches in 1 season
+# if one capture is antenna and other is hoop/efish, drop antena capture
+# if both captures are antenna, or both captures are hoop/efish, keep first capture
+pit.groups <- unique(bad.pits$pit.time.period)
+for (i in seq_along(pit.groups)) {
+  #dataframe of only this pit time group
+  df <- bad.pits %>% filter(pit.time.period == pit.groups[i])
 
   print(pit.groups[i])
+
+  gears <- unique(df$gear_code_simplified)
   print(gears)
+
 
   #if antenna data and actual capture data present, drop antenna data (no length)
   if ("AN" %in% gears & ("HB" %in% gears | "HU" %in% gears | "EL" %in% gears)){
@@ -1124,12 +1166,18 @@ for (i in seq_along(pit.groups)) {
     df <- df
   }
 
-  #now, subset every group to only it's first record
-  df <- df[1,]
+  #identify the reach of the first record, and keep this
+  first <- df[1,]
+  first.reach <- first$reach
+  print(first.reach)
+
+  #now, subset every group to only it's in same reach as first record
+  df <- df[df$reach == first.reach,]
 
   #and bind into new table of corrected pit tags
   corrected.pits <- corrected.pits %>% bind_rows(df)
 }
+
 
 #remove bad pits from fms, then rejoin on corrected pits
 fms <- fms %>%
